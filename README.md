@@ -5,16 +5,16 @@
 
 ## Table of Contents
 
-1. [Introduction](#introduction)
-2. [Installation](#installation)
-3. [Configuration](#configuration)
-4. [Usage](#usage)
-5. [Commands Reference](#commands-reference)
-6. [Web Interface](#web-interface)
-7. [Terminal Interface](#terminal-interface)
-8. [Troubleshooting](#troubleshooting)
-9. [Examples](#examples)
-10. [Appendix](#appendix)
+1. [Introduction](#1-introduction)
+2. [Installation](#2-installation)
+3. [Configuration](#3-configuration)
+4. [Usage](#4-usage)
+5. [Commands Reference](#5-commands-reference)
+6. [Web Interface](#6-web-interface)
+7. [Terminal Interface](#7-terminal-interface)
+8. [Troubleshooting](#8-troubleshooting)
+9. [Examples](#9-examples)
+10. [Appendix](#10-appendix)
 
 ---
 
