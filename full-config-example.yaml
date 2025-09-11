@@ -1,0 +1,480 @@
+# /etc/mirror-test.yaml
+# Complete configuration example with all features
+# This demonstrates variables, package manager configs, and custom test commands
+
+# ============================================================================
+# GLOBAL VARIABLES
+# ============================================================================
+variables:
+  # Primary mirror configuration
+  MIRROR_HOST: "10.10.0.15"
+  MIRROR_PROTO: "http"
+  MIRROR_BASE: "${MIRROR_PROTO}://${MIRROR_HOST}"
+  
+  # Alternative mirrors (for different environments)
+  DEV_MIRROR: "dev-mirror.local"
+  STAGING_MIRROR: "staging-mirror.local"
+  PROD_MIRROR: "prod-mirror.company.com"
+  
+  # Custom paths
+  DEBIAN_PATH: "/debian"
+  UBUNTU_PATH: "/ubuntu"
+  CENTOS_PATH: "/centos"
+  
+  # GPG settings
+  GPG_CHECK: "0"  # Set to 1 for production
+  
+  # Proxy settings (if needed)
+  # HTTP_PROXY: "http://proxy.company.com:8080"
+  # HTTPS_PROXY: "http://proxy.company.com:8080"
+
+# ============================================================================
+# PACKAGE MANAGER CONFIGURATIONS
+# ============================================================================
+# Define how each package manager should be tested
+# These are the defaults used unless overridden in specific distributions
+
+package-managers:
+  # APT (Debian/Ubuntu)
+  apt:
+    update-command: "apt-get update"
+    # Install essential packages to verify repository connectivity
+    test-commands:
+      - "apt-get install -y --no-install-recommends apt-utils"
+      - "apt-get install -y --no-install-recommends curl wget ca-certificates"
+      - "apt-cache stats"
+      - "apt-cache policy"
+      - "apt-cache search apache2 | head -5"
+      - "dpkg -l | wc -l"
+      - "echo '[SUCCESS] APT repositories are working correctly'"
+  
+  # YUM (RHEL 7/CentOS 7/Oracle Linux 7)
+  yum:
+    update-command: "yum clean all && yum makecache"
+    test-commands:
+      - "yum install -y yum-utils"
+      - "yum install -y curl wget which"
+      - "yum repolist enabled"
+      - "yum repolist all"
+      - "yum list available | wc -l"
+      - "yum group list ids"
+      - "yum history"
+      - "rpm -qa | wc -l"
+      - "echo '[SUCCESS] YUM repositories are working correctly'"
+  
+  # DNF (Fedora/RHEL 8+/CentOS 8+/Rocky/Alma)
+  dnf:
+    update-command: "dnf clean all && dnf makecache"
+    test-commands:
+      - "dnf install -y dnf-utils"
+      - "dnf install -y curl wget which net-tools"
+      - "dnf repolist --enabled"
+      - "dnf repolist --all"
+      - "dnf list available | wc -l"
+      - "dnf group list"
+      - "dnf module list"
+      - "dnf history"
+      - "rpm -qa | wc -l"
+      - "echo '[SUCCESS] DNF repositories are working correctly'"
+  
+  # Zypper (openSUSE/SLES)
+  zypper:
+    update-command: "zypper --non-interactive refresh"
+    test-commands:
+      - "zypper --non-interactive install -y curl wget which"
+      - "zypper repos --details"
+      - "zypper repos --uri"
+      - "zypper search --type package apache | head -5"
+      - "zypper patterns"
+      - "zypper packages --installed-only | wc -l"
+      - "rpm -qa | wc -l"
+      - "echo '[SUCCESS] Zypper repositories are working correctly'"
+  
+  # APK (Alpine Linux)
+  apk:
+    update-command: "apk update"
+    test-commands:
+      - "apk add --no-cache curl wget ca-certificates"
+      - "apk info"
+      - "apk search nginx | head -5"
+      - "apk search python3 | head -5"
+      - "apk stats"
+      - "apk policy"
+      - "apk list --installed | wc -l"
+      - "echo '[SUCCESS] APK repositories are working correctly'"
+  
+  # TDNF (VMware Photon OS)
+  tdnf:
+    update-command: "tdnf makecache"
+    test-commands:
+      - "tdnf install -y curl wget"
+      - "tdnf repolist"
+      - "tdnf list installed | wc -l"
+      - "tdnf list available | head -20"
+      - "tdnf info tdnf"
+      - "echo '[SUCCESS] TDNF repositories are working correctly'"
+  
+  # Pacman (Arch Linux)
+  pacman:
+    update-command: "pacman -Sy"
+    test-commands:
+      - "pacman -S --noconfirm curl wget"
+      - "pacman -Sl | head -20"
+      - "pacman -Sg"
+      - "pacman -Q | wc -l"
+      - "echo '[SUCCESS] Pacman repositories are working correctly'"
+
+# ============================================================================
+# DISTRIBUTION CONFIGURATIONS
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Debian-based Distributions
+# ----------------------------------------------------------------------------
+
+debian-12:
+  base-image: debian:12
+  package-manager: apt
+  sources:
+    - "deb ${MIRROR_BASE}${DEBIAN_PATH} bookworm main contrib non-free non-free-firmware"
+    - "deb ${MIRROR_BASE}${DEBIAN_PATH} bookworm-updates main contrib non-free non-free-firmware"
+    - "deb ${MIRROR_BASE}${DEBIAN_PATH}-security bookworm-security main contrib non-free non-free-firmware"
+  # Custom test commands for this specific distribution
+  test-commands:
+    - "apt-get install -y --no-install-recommends apt-utils curl"
+    - "apt-get install -y --no-install-recommends build-essential"
+    - "gcc --version"
+    - "apt-cache search python3 | head -5"
+    - "echo '[SUCCESS] Debian 12 repositories validated with build tools'"
+
+debian-11:
+  base-image: debian:11
+  package-manager: apt
+  sources:
+    - "deb ${MIRROR_BASE}${DEBIAN_PATH} bullseye main contrib non-free"
+    - "deb ${MIRROR_BASE}${DEBIAN_PATH} bullseye-updates main contrib non-free"
+    - "deb ${MIRROR_BASE}${DEBIAN_PATH}-security bullseye-security main contrib non-free"
+
+ubuntu-22-04:
+  base-image: ubuntu:22.04
+  package-manager: apt
+  sources:
+    - "deb ${MIRROR_BASE}${UBUNTU_PATH} jammy main restricted universe multiverse"
+    - "deb ${MIRROR_BASE}${UBUNTU_PATH} jammy-updates main restricted universe multiverse"
+    - "deb ${MIRROR_BASE}${UBUNTU_PATH} jammy-security main restricted universe multiverse"
+    - "deb ${MIRROR_BASE}${UBUNTU_PATH} jammy-backports main restricted universe multiverse"
+  test-commands:
+    - "apt-get install -y --no-install-recommends software-properties-common"
+    - "apt-get install -y --no-install-recommends curl wget"
+    - "add-apt-repository --list"
+    - "lsb_release -a"
+    - "echo '[SUCCESS] Ubuntu 22.04 repositories validated'"
+
+ubuntu-24-04:
+  base-image: ubuntu:24.04
+  package-manager: apt
+  sources:
+    - "deb ${MIRROR_BASE}${UBUNTU_PATH} noble main restricted universe multiverse"
+    - "deb ${MIRROR_BASE}${UBUNTU_PATH} noble-updates main restricted universe multiverse"
+    - "deb ${MIRROR_BASE}${UBUNTU_PATH} noble-security main restricted universe multiverse"
+
+# ----------------------------------------------------------------------------
+# RHEL-based Distributions
+# ----------------------------------------------------------------------------
+
+rocky-9:
+  base-image: rockylinux:9
+  package-manager: dnf
+  sources:
+    - |
+      [baseos]
+      name=Rocky Linux $releasever - BaseOS
+      baseurl=${MIRROR_BASE}/rocky/$releasever/BaseOS/$basearch/os/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      
+      [appstream]
+      name=Rocky Linux $releasever - AppStream
+      baseurl=${MIRROR_BASE}/rocky/$releasever/AppStream/$basearch/os/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      
+      [extras]
+      name=Rocky Linux $releasever - Extras
+      baseurl=${MIRROR_BASE}/rocky/$releasever/extras/$basearch/os/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      
+      [crb]
+      name=Rocky Linux $releasever - CRB
+      baseurl=${MIRROR_BASE}/rocky/$releasever/CRB/$basearch/os/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+  test-commands:
+    - "dnf install -y dnf-utils"
+    - "dnf install -y gcc make"
+    - "dnf group install -y 'Development Tools'"
+    - "gcc --version"
+    - "dnf module list"
+    - "echo '[SUCCESS] Rocky Linux 9 repositories validated with development tools'"
+
+almalinux-9:
+  base-image: almalinux:9
+  package-manager: dnf
+  sources:
+    - |
+      [baseos]
+      name=AlmaLinux $releasever - BaseOS
+      baseurl=${MIRROR_BASE}/almalinux/$releasever/BaseOS/$basearch/os/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      
+      [appstream]
+      name=AlmaLinux $releasever - AppStream
+      baseurl=${MIRROR_BASE}/almalinux/$releasever/AppStream/$basearch/os/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      
+      [extras]
+      name=AlmaLinux $releasever - Extras
+      baseurl=${MIRROR_BASE}/almalinux/$releasever/extras/$basearch/os/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+
+centos-7:
+  base-image: centos:7
+  package-manager: yum
+  sources:
+    - |
+      [base]
+      name=CentOS-$releasever - Base
+      baseurl=${MIRROR_BASE}${CENTOS_PATH}/$releasever/os/$basearch/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      
+      [updates]
+      name=CentOS-$releasever - Updates
+      baseurl=${MIRROR_BASE}${CENTOS_PATH}/$releasever/updates/$basearch/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      
+      [extras]
+      name=CentOS-$releasever - Extras
+      baseurl=${MIRROR_BASE}${CENTOS_PATH}/$releasever/extras/$basearch/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+  test-commands:
+    - "yum install -y epel-release"
+    - "yum install -y yum-utils"
+    - "yum install -y gcc make automake"
+    - "yum groupinstall -y 'Development Tools'"
+    - "gcc --version"
+    - "echo '[SUCCESS] CentOS 7 repositories validated with EPEL'"
+
+fedora-39:
+  base-image: fedora:39
+  package-manager: dnf
+  sources:
+    - |
+      [fedora]
+      name=Fedora $releasever - $basearch
+      baseurl=${MIRROR_BASE}/fedora/releases/$releasever/Everything/$basearch/os/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      metadata_expire=1d
+      
+      [fedora-updates]
+      name=Fedora $releasever - $basearch - Updates
+      baseurl=${MIRROR_BASE}/fedora/updates/$releasever/Everything/$basearch/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      metadata_expire=1d
+      
+      [fedora-modular]
+      name=Fedora Modular $releasever - $basearch
+      baseurl=${MIRROR_BASE}/fedora/releases/$releasever/Modular/$basearch/os/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      metadata_expire=1d
+
+oracle-linux-9:
+  base-image: oraclelinux:9
+  package-manager: dnf
+  sources:
+    - |
+      [ol9_baseos_latest]
+      name=Oracle Linux 9 BaseOS Latest
+      baseurl=${MIRROR_BASE}/oracle/$releasever/baseos/latest/$basearch/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      
+      [ol9_appstream]
+      name=Oracle Linux 9 Application Stream
+      baseurl=${MIRROR_BASE}/oracle/$releasever/appstream/$basearch/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      
+      [ol9_codeready_builder]
+      name=Oracle Linux 9 CodeReady Builder
+      baseurl=${MIRROR_BASE}/oracle/$releasever/codeready/builder/$basearch/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+
+# ----------------------------------------------------------------------------
+# Other Distributions
+# ----------------------------------------------------------------------------
+
+opensuse-leap:
+  base-image: opensuse/leap:15.5
+  package-manager: zypper
+  sources:
+    - |
+      [oss]
+      name=openSUSE Leap OSS
+      baseurl=${MIRROR_BASE}/opensuse/distribution/leap/15.5/repo/oss/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      autorefresh=1
+      type=rpm-md
+      
+      [update]
+      name=openSUSE Leap Update
+      baseurl=${MIRROR_BASE}/opensuse/update/leap/15.5/oss/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      autorefresh=1
+      type=rpm-md
+      
+      [non-oss]
+      name=openSUSE Leap Non-OSS
+      baseurl=${MIRROR_BASE}/opensuse/distribution/leap/15.5/repo/non-oss/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      autorefresh=1
+      type=rpm-md
+  test-commands:
+    - "zypper --non-interactive install -y gcc make"
+    - "zypper --non-interactive install -y -t pattern devel_basis"
+    - "gcc --version"
+    - "zypper search --installed-only | wc -l"
+    - "echo '[SUCCESS] openSUSE Leap repositories validated with development pattern'"
+
+opensuse-tumbleweed:
+  base-image: opensuse/tumbleweed:latest
+  package-manager: zypper
+  sources:
+    - |
+      [oss]
+      name=openSUSE Tumbleweed OSS
+      baseurl=${MIRROR_BASE}/opensuse/tumbleweed/repo/oss/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      autorefresh=1
+      type=rpm-md
+
+alpine-3-19:
+  base-image: alpine:3.19
+  package-manager: apk
+  sources:
+    - "${MIRROR_BASE}/alpine/v3.19/main"
+    - "${MIRROR_BASE}/alpine/v3.19/community"
+  test-commands:
+    - "apk add --no-cache alpine-sdk"
+    - "apk add --no-cache gcc musl-dev"
+    - "gcc --version"
+    - "apk info --installed | wc -l"
+    - "echo '[SUCCESS] Alpine 3.19 repositories validated with SDK'"
+
+alpine-edge:
+  base-image: alpine:edge
+  package-manager: apk
+  sources:
+    - "${MIRROR_BASE}/alpine/edge/main"
+    - "${MIRROR_BASE}/alpine/edge/community"
+    - "${MIRROR_BASE}/alpine/edge/testing"
+
+photon-5:
+  base-image: photon:5.0
+  package-manager: tdnf
+  sources:
+    - |
+      [photon]
+      name=VMware Photon Linux $releasever ($basearch)
+      baseurl=${MIRROR_BASE}/photon/$releasever/photon_$releasever_$basearch/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+      
+      [photon-updates]
+      name=VMware Photon Linux $releasever ($basearch) Updates
+      baseurl=${MIRROR_BASE}/photon/$releasever/photon_updates_$releasever_$basearch/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+  test-commands:
+    - "tdnf install -y build-essential"
+    - "tdnf install -y gcc make"
+    - "gcc --version"
+    - "tdnf list installed | wc -l"
+    - "echo '[SUCCESS] Photon OS 5 repositories validated with build tools'"
+
+archlinux:
+  base-image: archlinux:latest
+  package-manager: pacman
+  sources:
+    - |
+      [core]
+      Server = ${MIRROR_BASE}/archlinux/core/os/$arch
+      
+      [extra]
+      Server = ${MIRROR_BASE}/archlinux/extra/os/$arch
+      
+      [community]
+      Server = ${MIRROR_BASE}/archlinux/community/os/$arch
+  test-commands:
+    - "pacman -Sy --noconfirm base-devel"
+    - "pacman -S --noconfirm gcc make"
+    - "gcc --version"
+    - "pacman -Q | wc -l"
+    - "echo '[SUCCESS] Arch Linux repositories validated with base-devel'"
+
+# ============================================================================
+# SPECIAL TEST SCENARIOS
+# ============================================================================
+
+# Test with minimal packages (fast test)
+debian-minimal:
+  base-image: debian:12-slim
+  package-manager: apt
+  sources:
+    - "deb ${MIRROR_BASE}${DEBIAN_PATH} bookworm main"
+  test-commands:
+    - "apt-get install -y --no-install-recommends curl"
+    - "echo '[SUCCESS] Minimal Debian test passed'"
+
+# Test with security updates only
+ubuntu-security-only:
+  base-image: ubuntu:22.04
+  package-manager: apt
+  sources:
+    - "deb ${MIRROR_BASE}${UBUNTU_PATH} jammy-security main restricted universe multiverse"
+  test-commands:
+    - "apt-get install -y --no-install-recommends apt-utils"
+    - "apt-cache policy | grep jammy-security"
+    - "echo '[SUCCESS] Ubuntu security repository validated'"
+
+# Test with specific package verification
+rocky-package-test:
+  base-image: rockylinux:9
+  package-manager: dnf
+  sources:
+    - |
+      [baseos]
+      name=Rocky Linux $releasever - BaseOS
+      baseurl=${MIRROR_BASE}/rocky/$releasever/BaseOS/$basearch/os/
+      enabled=1
+      gpgcheck=${GPG_CHECK}
+  test-commands:
+    - "dnf install -y httpd mariadb-server php"
+    - "httpd -v"
+    - "mysql --version"
+    - "php --version"
+    - "echo '[SUCCESS] LAMP stack packages validated'"
