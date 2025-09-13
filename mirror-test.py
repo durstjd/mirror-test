@@ -24,15 +24,43 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 import socketserver
 import webbrowser
 
-# Configuration paths
+
+# Configuration paths - use user-level defaults
+import os
+from pathlib import Path
+
+# Default paths (will be overridden by MirrorTester if user config exists)
 CONFIG_FILE = "/etc/mirror-test.yaml"
 LOG_DIR = "/var/log/mirror-test"
 BUILD_DIR = "/var/lib/mirror-test/builds"
 WEB_PORT = 8080
 
-# Ensure directories exist
-Path(LOG_DIR).mkdir(parents=True, exist_ok=True)
-Path(BUILD_DIR).mkdir(parents=True, exist_ok=True)
+# User-level paths
+USER_CONFIG = os.path.expanduser("~/.config/mirror-test/mirror-test.yaml")
+USER_LOG_DIR = os.path.expanduser("~/mirror-test/logs")
+USER_BUILD_DIR = os.path.expanduser("~/mirror-test/builds")
+
+def get_user_paths():
+    """Get user-level paths if config exists, otherwise system paths."""
+    if os.path.exists(USER_CONFIG):
+        return USER_CONFIG, USER_LOG_DIR, USER_BUILD_DIR
+    else:
+        return CONFIG_FILE, LOG_DIR, BUILD_DIR
+
+def get_paths_for_user():
+    """Get paths appropriate for the current user context."""
+    # Check if we're running as root
+    try:
+        # Check if we're running as root
+        if os.geteuid() == 0:
+            return CONFIG_FILE, LOG_DIR, BUILD_DIR
+        else:
+            return USER_CONFIG, USER_LOG_DIR, USER_BUILD_DIR
+    except AttributeError:
+        # os.geteuid() not available, use user paths
+        return USER_CONFIG, USER_LOG_DIR, USER_BUILD_DIR
+
+# Note: Directories will be created by MirrorTester based on installation type
 
 # Configure logging
 logging.basicConfig(
@@ -45,10 +73,30 @@ logger = logging.getLogger(__name__)
 class MirrorTester:
     """Main class for testing repository mirrors using Dockerfile builds."""
     
-    def __init__(self, config_file: str = CONFIG_FILE):
+    def __init__(self, config_file: str = None, cleanup_images: bool = True):
+        # Determine paths based on config file
+        if config_file is None:
+            config_file, log_dir, build_dir = get_paths_for_user()
+        else:
+            # Determine paths based on config file location
+            if config_file.startswith(os.path.expanduser("~")):
+                log_dir = USER_LOG_DIR
+                build_dir = USER_BUILD_DIR
+            else:
+                log_dir = LOG_DIR
+                build_dir = BUILD_DIR
+        
+        # Store paths for this instance
         self.config_file = config_file
+        self.log_dir = log_dir
+        self.build_dir = build_dir
         self.config = self.load_config()
         self.results = {}
+        self.cleanup_images = cleanup_images
+        
+        # Ensure directories exist
+        Path(self.log_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.build_dir).mkdir(parents=True, exist_ok=True)
         
     def load_config(self) -> Dict:
         """Load configuration from YAML file."""
@@ -57,7 +105,22 @@ class MirrorTester:
             self.create_default_config()
             
         with open(self.config_file, 'r') as f:
-            return yaml.safe_load(f)
+            config = yaml.safe_load(f)
+            
+        # Handle both old flat structure and new nested structure
+        if 'distributions' in config:
+            # New nested structure - extract distributions to top level for backward compatibility
+            distributions = config.pop('distributions', {})
+            # Keep other keys like variables and package-managers
+            other_keys = {k: v for k, v in config.items() if k not in ['distributions']}
+            config = {**other_keys, **distributions}
+            
+        return config
+    
+    def get_distributions(self) -> List[str]:
+        """Get list of configured distributions (excluding variables and package-managers)."""
+        excluded_keys = {'variables', 'package-managers'}
+        return [key for key in self.config.keys() if key not in excluded_keys]
     
     def create_default_config(self):
         """Create a default configuration file."""
@@ -105,11 +168,47 @@ class MirrorTester:
             yaml.dump(default_config, f, default_flow_style=False)
         logger.info(f"Created default configuration at {self.config_file}")
     
+    def substitute_variables(self, text: str) -> str:
+        """Substitute variables in text using the configuration variables."""
+        if 'variables' not in self.config:
+            return text
+        
+        variables = self.config['variables']
+        
+        # Handle nested variable substitution
+        max_iterations = 10  # Prevent infinite loops
+        for _ in range(max_iterations):
+            original_text = text
+            for var_name, var_value in variables.items():
+                pattern = f"${{{var_name}}}"
+                text = text.replace(pattern, str(var_value))
+            
+            # If no more substitutions were made, we're done
+            if text == original_text:
+                break
+        
+        return text
+    
+    def get_package_manager_config(self, package_manager: str) -> Dict:
+        """Get package manager configuration from the config."""
+        if 'package-managers' not in self.config:
+            return {}
+        
+        return self.config['package-managers'].get(package_manager, {})
+    
     def generate_dockerfile(self, dist_name: str, dist_config: Dict) -> str:
         """Generate a Dockerfile for testing a distribution's repositories."""
         base_image = dist_config.get('base-image', dist_config.get('pull', 'debian:12'))
         package_manager = dist_config.get('package-manager', 'apt')
         sources = dist_config.get('sources', [])
+        
+        # Get package manager configuration
+        pm_config = self.get_package_manager_config(package_manager)
+        update_command = pm_config.get('update-command', '')
+        default_test_commands = pm_config.get('test-commands', [])
+        
+        # Get distribution-specific test commands (override package manager defaults)
+        dist_test_commands = dist_config.get('test-commands', default_test_commands)
         
         dockerfile = f"FROM {base_image}\n\n"
         dockerfile += "# Mirror test for " + dist_name + "\n"
@@ -123,36 +222,94 @@ class MirrorTester:
             dockerfile += "    > /etc/apt/sources.list && \\\n"
             
             for source in sources:
-                source_escaped = source.replace('"', '\\"')
+                # Substitute variables in source
+                substituted_source = self.substitute_variables(source)
+                source_escaped = substituted_source.replace('"', '\\"')
                 dockerfile += f'    echo "{source_escaped}" >> /etc/apt/sources.list && \\\n'
             
             dockerfile += "    cat /etc/apt/sources.list\n\n"
-            dockerfile += "# Test repository access\n"
-            dockerfile += "RUN apt-get update && \\\n"
-            dockerfile += "    apt-get install -y --no-install-recommends apt-utils && \\\n"
-            dockerfile += "    echo 'Repository test successful'\n"
+            
+            # Use package manager update command or default
+            if update_command:
+                dockerfile += f"# Update package lists\n"
+                dockerfile += f"RUN {update_command}\n\n"
+            else:
+                dockerfile += "# Update package lists\n"
+                dockerfile += "RUN apt-get update\n\n"
+            
+            # Add test commands
+            if dist_test_commands:
+                dockerfile += "# Run test commands\n"
+                dockerfile += "RUN "
+                for i, cmd in enumerate(dist_test_commands):
+                    substituted_cmd = self.substitute_variables(cmd)
+                    if i > 0:
+                        dockerfile += "    && "
+                    dockerfile += f"{substituted_cmd} \\\n"
+                dockerfile += "    && echo 'Repository test successful'\n"
+            else:
+                dockerfile += "# Basic repository test\n"
+                dockerfile += "RUN apt-get install -y --no-install-recommends apt-utils && \\\n"
+                dockerfile += "    && echo 'Repository test successful'\n"
             
         elif package_manager in ['yum', 'dnf']:
             # RHEL/CentOS/Rocky/Fedora
             dockerfile += "# Configure repositories\n"
             dockerfile += "RUN rm -f /etc/yum.repos.d/* && \\\n"
             
-            # Write repo configuration
-            repo_file = "/etc/yum.repos.d/mirror-test.repo"
-            dockerfile += f"    cat > {repo_file} << 'EOF'\n"
-            for source in sources:
-                dockerfile += source + "\n"
-            dockerfile += "EOF\n\n"
+            # Define shell variables for repository configuration
+            dockerfile += "    export releasever=$(rpm -q --qf '%{VERSION}' $(rpm -q --whatprovides redhat-release)) && \\\n"
+            dockerfile += "    export basearch=$(uname -m) && \\\n"
             
-            dockerfile += "# Test repository access\n"
-            if package_manager == 'dnf':
-                dockerfile += "RUN dnf makecache && \\\n"
-                dockerfile += "    dnf install -y dnf-utils && \\\n"
-                dockerfile += "    echo 'Repository test successful'\n"
+            # Write repo configuration using echo and redirection
+            repo_file = "/etc/yum.repos.d/mirror-test.repo"
+            for source in sources:
+                # Substitute variables in source
+                substituted_source = self.substitute_variables(source)
+                # Handle multi-line sources (YAML | syntax)
+                if '\n' in substituted_source:
+                    # Multi-line source - split into lines and echo each
+                    lines = substituted_source.split('\n')
+                    for line in lines:
+                        if line.strip():  # Skip empty lines
+                            escaped_line = line.replace('"', '\\"')
+                            dockerfile += f'    echo "{escaped_line}" >> {repo_file} && \\\n'
+                else:
+                    # Single-line source - echo directly
+                    escaped_line = substituted_source.replace('"', '\\"')
+                    dockerfile += f'    echo "{escaped_line}" >> {repo_file} && \\\n'
+            
+            # Remove the trailing && and add final command
+            dockerfile += f"    cat {repo_file}\n\n"
+            
+            # Use package manager update command or default
+            if update_command:
+                dockerfile += f"# Update package lists\n"
+                dockerfile += f"RUN {update_command}\n\n"
             else:
-                dockerfile += "RUN yum makecache && \\\n"
-                dockerfile += "    yum install -y yum-utils && \\\n"
-                dockerfile += "    echo 'Repository test successful'\n"
+                dockerfile += "# Update package lists\n"
+                if package_manager == 'dnf':
+                    dockerfile += "RUN dnf makecache\n\n"
+                else:
+                    dockerfile += "RUN yum makecache\n\n"
+            
+            # Add test commands
+            if dist_test_commands:
+                dockerfile += "# Run test commands\n"
+                dockerfile += "RUN "
+                for i, cmd in enumerate(dist_test_commands):
+                    substituted_cmd = self.substitute_variables(cmd)
+                    if i > 0:
+                        dockerfile += "    && "
+                    dockerfile += f"{substituted_cmd} \\\n"
+                dockerfile += "    && echo 'Repository test successful'\n"
+            else:
+                dockerfile += "# Basic repository test\n"
+                if package_manager == 'dnf':
+                    dockerfile += "RUN dnf install -y dnf-utils && \\\n"
+                else:
+                    dockerfile += "RUN yum install -y yum-utils && \\\n"
+                dockerfile += "    && echo 'Repository test successful'\n"
             
         elif package_manager == 'zypper':
             # openSUSE/SLES
@@ -162,13 +319,39 @@ class MirrorTester:
             repo_file = "/etc/zypp/repos.d/mirror-test.repo"
             dockerfile += f"    cat > {repo_file} << 'EOF'\n"
             for source in sources:
-                dockerfile += source + "\n"
+                # Substitute variables in source
+                substituted_source = self.substitute_variables(source)
+                # Handle multi-line sources (YAML | syntax)
+                if '\n' in substituted_source:
+                    # Multi-line source - write as-is
+                    dockerfile += substituted_source + "\n"
+                else:
+                    # Single-line source - treat as repository section
+                    dockerfile += substituted_source + "\n"
             dockerfile += "EOF\n\n"
             
-            dockerfile += "# Test repository access\n"
-            dockerfile += "RUN zypper --non-interactive refresh && \\\n"
-            dockerfile += "    zypper --non-interactive install -y zypper && \\\n"
-            dockerfile += "    echo 'Repository test successful'\n"
+            # Use package manager update command or default
+            if update_command:
+                dockerfile += f"# Update package lists\n"
+                dockerfile += f"RUN {update_command}\n\n"
+            else:
+                dockerfile += "# Update package lists\n"
+                dockerfile += "RUN zypper --non-interactive refresh\n\n"
+            
+            # Add test commands
+            if dist_test_commands:
+                dockerfile += "# Run test commands\n"
+                dockerfile += "RUN "
+                for i, cmd in enumerate(dist_test_commands):
+                    substituted_cmd = self.substitute_variables(cmd)
+                    if i > 0:
+                        dockerfile += "    && "
+                    dockerfile += f"{substituted_cmd} \\\n"
+                dockerfile += "    && echo 'Repository test successful'\n"
+            else:
+                dockerfile += "# Basic repository test\n"
+                dockerfile += "RUN zypper --non-interactive install -y zypper && \\\n"
+                dockerfile += "    && echo 'Repository test successful'\n"
             
         elif package_manager == 'apk':
             # Alpine
@@ -176,14 +359,35 @@ class MirrorTester:
             dockerfile += "RUN > /etc/apk/repositories && \\\n"
             
             for source in sources:
-                source_escaped = source.replace('"', '\\"')
+                # Substitute variables in source
+                substituted_source = self.substitute_variables(source)
+                source_escaped = substituted_source.replace('"', '\\"')
                 dockerfile += f'    echo "{source_escaped}" >> /etc/apk/repositories && \\\n'
             
             dockerfile += "    cat /etc/apk/repositories\n\n"
-            dockerfile += "# Test repository access\n"
-            dockerfile += "RUN apk update && \\\n"
-            dockerfile += "    apk add --no-cache curl && \\\n"
-            dockerfile += "    echo 'Repository test successful'\n"
+            
+            # Use package manager update command or default
+            if update_command:
+                dockerfile += f"# Update package lists\n"
+                dockerfile += f"RUN {update_command}\n\n"
+            else:
+                dockerfile += "# Update package lists\n"
+                dockerfile += "RUN apk update\n\n"
+            
+            # Add test commands
+            if dist_test_commands:
+                dockerfile += "# Run test commands\n"
+                dockerfile += "RUN "
+                for i, cmd in enumerate(dist_test_commands):
+                    substituted_cmd = self.substitute_variables(cmd)
+                    if i > 0:
+                        dockerfile += "    && "
+                    dockerfile += f"{substituted_cmd} \\\n"
+                dockerfile += "    && echo 'Repository test successful'\n"
+            else:
+                dockerfile += "# Basic repository test\n"
+                dockerfile += "RUN apk add --no-cache curl && \\\n"
+                dockerfile += "    && echo 'Repository test successful'\n"
         
         else:
             # Generic fallback
@@ -205,7 +409,7 @@ class MirrorTester:
         dist_config = self.config[dist_name]
         
         # Create build directory for this distribution
-        build_path = os.path.join(BUILD_DIR, dist_name)
+        build_path = os.path.join(self.build_dir, dist_name)
         os.makedirs(build_path, exist_ok=True)
         
         # Generate Dockerfile
@@ -221,11 +425,14 @@ class MirrorTester:
             f.write(dockerfile_content)
         
         # Run podman build
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        image_tag = f"mirror-test:{dist_name}-{timestamp}"
         build_cmd = [
             "podman", "build",
             "--no-cache",  # Always test fresh
             "-f", dockerfile_path,
-            "-t", f"mirror-test:{dist_name}",
+            "-t", image_tag,
+            "-t", f"mirror-test:{dist_name}",  # Also tag with simple name
             build_path
         ]
         
@@ -251,7 +458,7 @@ class MirrorTester:
         stderr_lines = result.stderr.split('\n')
         
         # Log results
-        log_file = os.path.join(LOG_DIR, f"{dist_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+        log_file = os.path.join(self.log_dir, f"{dist_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
         with open(log_file, 'w') as f:
             f.write(f"Distribution: {dist_name}\n")
             f.write(f"Base Image: {dist_config.get('base-image', 'unknown')}\n")
@@ -264,17 +471,43 @@ class MirrorTester:
             f.write(f"\n--- BUILD ERRORS ---\n{result.stderr}\n")
         
         # Save latest log symlink
-        latest_link = os.path.join(LOG_DIR, f"{dist_name}_latest.log")
+        latest_link = os.path.join(self.log_dir, f"{dist_name}_latest.log")
         if os.path.exists(latest_link):
             os.remove(latest_link)
         os.symlink(log_file, latest_link)
         
-        # Clean up successful build images to save space (optional)
-        if success:
-            cleanup_cmd = ["podman", "rmi", "-f", f"mirror-test:{dist_name}"]
-            subprocess.run(cleanup_cmd, capture_output=True)
+        # Clean up images to save space (optional)
+        if self.cleanup_images:
+            if success:
+                # Remove both timestamped and simple tags for successful builds
+                cleanup_cmd = ["podman", "rmi", "-f", image_tag, f"mirror-test:{dist_name}"]
+                subprocess.run(cleanup_cmd, capture_output=True)
+                logger.debug(f"Cleaned up images {image_tag} and mirror-test:{dist_name}")
+            else:
+                # For failed builds, clean up any dangling images that might have been created
+                logger.debug(f"Build failed for {dist_name}, cleaning up any dangling images")
+                # Clean up dangling images created during failed build
+                dangling_cmd = ["podman", "image", "prune", "-f"]
+                subprocess.run(dangling_cmd, capture_output=True)
+        elif success:
+            logger.info(f"Images {image_tag} and mirror-test:{dist_name} kept for inspection")
+        else:
+            logger.info(f"Failed build for {dist_name}, images not cleaned up for inspection")
         
         return success, result.stdout, result.stderr
+    
+    def cleanup_dangling_images(self):
+        """Clean up dangling images created during failed builds."""
+        try:
+            # Clean up dangling images
+            dangling_cmd = ["podman", "image", "prune", "-f"]
+            result = subprocess.run(dangling_cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                logger.debug("Cleaned up dangling images")
+            else:
+                logger.warning(f"Failed to clean up dangling images: {result.stderr}")
+        except Exception as e:
+            logger.warning(f"Error cleaning up dangling images: {e}")
     
     def test_all(self) -> Dict:
         """Test all configured distributions."""
@@ -287,6 +520,9 @@ class MirrorTester:
                 'stderr': stderr,
                 'timestamp': datetime.now().isoformat()
             }
+            # Clean up dangling images after each test
+            if not success:
+                self.cleanup_dangling_images()
         return results
     
     def test_specific(self, distributions: List[str]) -> Dict:
@@ -301,6 +537,9 @@ class MirrorTester:
                     'stderr': stderr,
                     'timestamp': datetime.now().isoformat()
                 }
+                # Clean up dangling images after each test
+                if not success:
+                    self.cleanup_dangling_images()
             else:
                 logger.warning(f"Distribution {dist_name} not found in configuration")
                 results[dist_name] = {
@@ -313,7 +552,9 @@ class MirrorTester:
     
     def get_latest_log(self, dist_name: str) -> Dict:
         """Get the latest log for a distribution."""
-        latest_log = os.path.join(LOG_DIR, f"{dist_name}_latest.log")
+        # Use the instance's log directory, not the global one
+        log_dir = getattr(self, 'log_dir', LOG_DIR)
+        latest_log = os.path.join(log_dir, f"{dist_name}_latest.log")
         if not os.path.exists(latest_log):
             return {
                 'error': f'No logs found for {dist_name}',
@@ -367,7 +608,9 @@ class WebInterface:
     
     def create_html(self) -> str:
         """Create the HTML interface."""
-        distributions = list(self.tester.config.keys())
+        # Filter out non-distribution keys (variables, package-managers, etc.)
+        excluded_keys = {'variables', 'package-managers'}
+        distributions = [key for key in self.tester.config.keys() if key not in excluded_keys]
         
         html = """<!DOCTYPE html>
 <html lang="en">
@@ -673,6 +916,124 @@ class WebInterface:
             opacity: 0.9;
             font-size: 0.9em;
         }
+        
+        .success-card {
+            background: linear-gradient(135deg, #4ec9b0 0%, #44a08d 100%) !important;
+        }
+        
+        .error-card {
+            background: linear-gradient(135deg, #f14c4c 0%, #c44569 100%) !important;
+        }
+        
+        .build-panels {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 30px;
+        }
+        
+        .build-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .build-panel h3 {
+            margin: 0 0 15px 0;
+            font-size: 1.1em;
+            color: #444;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 8px;
+        }
+        
+        .build-list {
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 0 5px;
+        }
+        
+        .build-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 10px;
+            margin: 5px 0;
+            border-radius: 6px;
+            font-size: 0.9em;
+            transition: all 0.2s;
+            width: 95%;
+            box-sizing: border-box;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .success-item {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            border-left: 4px solid #28a745;
+            color: #155724;
+        }
+        
+        .failed-item {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            border-left: 4px solid #dc3545;
+            color: #721c24;
+        }
+        
+        .build-item:hover {
+            transform: translateX(2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            opacity: 0.9;
+        }
+        
+        .build-item:active {
+            transform: translateX(1px);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+        
+        .build-dist {
+            font-weight: 600;
+            text-transform: capitalize;
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .build-date {
+            font-size: 0.8em;
+            opacity: 0.8;
+            flex-shrink: 0;
+            margin-left: 8px;
+        }
+        
+        .no-builds {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            padding: 20px;
+        }
+        
+        .build-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .build-list::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+        
+        .build-list::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+        }
+        
+        .build-list::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
     </style>
 </head>
 <body>
@@ -739,6 +1100,23 @@ class WebInterface:
                 
                 <div id="full" class="tab-content">
                     <pre class="log-content" id="fullLog">Complete log will appear here...</pre>
+                </div>
+                
+                <!-- Build Status Panels -->
+                <div class="build-panels" style="margin-top: 30px;">
+                    <div class="build-panel success-panel">
+                        <h3>✅ Successful Builds</h3>
+                        <div class="build-list" id="successful-builds">
+                            <!-- Successful builds will be loaded here -->
+                        </div>
+                    </div>
+                    
+                    <div class="build-panel failed-panel">
+                        <h3>❌ Failed Builds</h3>
+                        <div class="build-list" id="failed-builds">
+                            <!-- Failed builds will be loaded here -->
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -861,6 +1239,9 @@ class WebInterface:
                 highlightDockerfile();
                 
                 showStatus('Build logs loaded successfully', 'success');
+                
+                // Update stats to reflect any changes
+                updateStats();
             } catch (error) {
                 showStatus('Error loading logs: ' + error.message, 'error');
                 stdout.textContent = 'Error loading logs';
@@ -896,6 +1277,9 @@ class WebInterface:
                 document.getElementById('dockerfile').classList.add('active');
                 
                 showStatus('Dockerfile generated', 'success');
+                
+                // Update stats to reflect any changes
+                updateStats();
             } catch (error) {
                 showStatus('Error generating Dockerfile: ' + error.message, 'error');
             }
@@ -948,12 +1332,74 @@ class WebInterface:
                         <div class="stat-value">${data.tested}</div>
                         <div class="stat-label">Recently Tested</div>
                     </div>
+                    <div class="stat-card success-card">
+                        <div class="stat-value">${data.successful.length}</div>
+                        <div class="stat-label">Successful Builds</div>
+                    </div>
+                    <div class="stat-card error-card">
+                        <div class="stat-value">${data.failed.length}</div>
+                        <div class="stat-label">Failed Builds</div>
+                    </div>
                 `;
                 
                 document.getElementById('stats').innerHTML = statsHtml;
+                
+                // Update the detailed panels
+                updateBuildPanels(data.successful, data.failed);
             } catch (error) {
                 console.error('Error loading stats:', error);
             }
+        }
+        
+        function updateBuildPanels(successful, failed) {
+            // Update successful builds panel
+            const successfulHtml = successful.length > 0 ? 
+                successful.map(item => `
+                    <div class="build-item success-item" onclick="loadLogsForDistribution('${item.dist}')" title="Click to load logs for ${item.dist}">
+                        <div class="build-dist">${item.dist}</div>
+                        <div class="build-date">${item.date}</div>
+                    </div>
+                `).join('') : 
+                '<div class="no-builds">No successful builds yet</div>';
+            
+            document.getElementById('successful-builds').innerHTML = successfulHtml;
+            
+            // Update failed builds panel
+            const failedHtml = failed.length > 0 ? 
+                failed.map(item => `
+                    <div class="build-item failed-item" onclick="loadLogsForDistribution('${item.dist}')" title="Click to load logs for ${item.dist}">
+                        <div class="build-dist">${item.dist}</div>
+                        <div class="build-date">${item.date}</div>
+                    </div>
+                `).join('') : 
+                '<div class="no-builds">No failed builds</div>';
+            
+            document.getElementById('failed-builds').innerHTML = failedHtml;
+        }
+        
+        function loadLogsForDistribution(distribution) {
+            // Select the distribution in the dropdown
+            const select = document.getElementById('distribution');
+            const options = select.options;
+            
+            // Clear current selections
+            for (let i = 0; i < options.length; i++) {
+                options[i].selected = false;
+            }
+            
+            // Find and select the clicked distribution
+            for (let i = 0; i < options.length; i++) {
+                if (options[i].value === distribution) {
+                    options[i].selected = true;
+                    break;
+                }
+            }
+            
+            // Load the logs for this distribution
+            loadLogs();
+            
+            // Show a brief status message
+            showStatus(`Loading logs for ${distribution}...`, 'info');
         }
         
         // Auto-refresh stats on page load
@@ -967,6 +1413,9 @@ class WebInterface:
                 document.getElementById('distribution').value = dist;
                 loadLogs();
             }
+            
+            // Auto-refresh stats every 30 seconds to keep them up-to-date
+            setInterval(updateStats, 30000);
         });
         
         // Keyboard shortcuts
@@ -1010,7 +1459,9 @@ class WebInterface:
                     self.send_response(200)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()
-                    distributions = list(self.tester.config.keys())
+                    # Filter out non-distribution keys (variables, package-managers, etc.)
+                    excluded_keys = {'variables', 'package-managers'}
+                    distributions = [key for key in self.tester.config.keys() if key not in excluded_keys]
                     self.wfile.write(json.dumps({'distributions': distributions}).encode())
                     
                 elif self.path.startswith('/api/logs/'):
@@ -1029,20 +1480,180 @@ class WebInterface:
                     self.end_headers()
                     self.wfile.write(json.dumps({'dockerfile': dockerfile}).encode())
                     
+                elif self.path == '/api/debug-stats':
+                    # Debug endpoint to show what the logic is detecting
+                    excluded_keys = {'variables', 'package-managers'}
+                    distributions = [key for key in self.tester.config.keys() if key not in excluded_keys]
+                    debug_info = []
+                    
+                    for dist in distributions:
+                        latest_log_path = os.path.join(self.tester.log_dir, f"{dist}_latest.log")
+                        if os.path.exists(latest_log_path):
+                            try:
+                                with open(latest_log_path, 'r', encoding='utf-8') as f:
+                                    log_content = f.read()
+                                
+                                log_lower = log_content.lower()
+                                
+                                # Check what indicators are found
+                                success_found = [ind for ind in [
+                                    'all repository tests passed', 'build completed successfully',
+                                    'exit code: 0', 'return code: 0', 'build finished successfully',
+                                    'test completed successfully', 'mirror test completed'
+                                ] if ind in log_lower]
+                                
+                                failure_found = [ind for ind in [
+                                    'exit code: 1', 'exit code: 2', 'exit code: 100', 'exit code: 127',
+                                    'return code: 1', 'return code: 2', 'return code: 100', 'return code: 127',
+                                    'build failed', 'test failed', 'mirror test failed', 'fatal error',
+                                    'critical error', 'build error:', 'test error:',
+                                    'command failed with exit code', 'podman build failed', 'docker build failed',
+                                    'exit status 100', 'exit status 1', 'exit status 2', 'exit status 127',
+                                    'error: building at step', 'while running runtime: exit status',
+                                    'error: failed to solve', 'failed to build', 'build process failed'
+                                ] if ind in log_lower]
+                                
+                                # Check last few lines
+                                log_lines = log_content.split('\n')
+                                last_lines = log_lines[-5:] if len(log_lines) > 5 else log_lines
+                                last_content = '\n'.join(last_lines)
+                                
+                                debug_info.append({
+                                    'dist': dist,
+                                    'success_indicators': success_found,
+                                    'failure_indicators': failure_found,
+                                    'last_lines': last_content,
+                                    'log_size': len(log_content)
+                                })
+                            except Exception as e:
+                                debug_info.append({
+                                    'dist': dist,
+                                    'error': str(e)
+                                })
+                    
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps(debug_info, indent=2).encode())
+                    
                 elif self.path == '/api/stats':
-                    # Count distributions and recent tests
-                    total = len(self.tester.config)
+                    # Count distributions and recent tests (exclude non-distribution keys)
+                    excluded_keys = {'variables', 'package-managers'}
+                    distributions = [key for key in self.tester.config.keys() if key not in excluded_keys]
+                    total = len(distributions)
                     tested = 0
-                    for dist in self.tester.config.keys():
-                        if os.path.exists(os.path.join(LOG_DIR, f"{dist}_latest.log")):
+                    successful = []
+                    failed = []
+                    
+                    for dist in distributions:
+                        latest_log_path = os.path.join(self.tester.log_dir, f"{dist}_latest.log")
+                        if os.path.exists(latest_log_path):
                             tested += 1
+                            
+                            # Read the latest log to determine success/failure
+                            try:
+                                with open(latest_log_path, 'r', encoding='utf-8') as f:
+                                    log_content = f.read()
+                                
+                                # Get file modification time as test date
+                                test_date = datetime.fromtimestamp(os.path.getmtime(latest_log_path)).strftime('%Y-%m-%d %H:%M')
+                                
+                                # More sophisticated success/failure detection
+                                log_lower = log_content.lower()
+                                
+                                # Check for explicit success indicators
+                                success_indicators = [
+                                    'all repository tests passed',
+                                    'build completed successfully',
+                                    'exit code: 0',
+                                    'return code: 0',
+                                    'build finished successfully',
+                                    'test completed successfully',
+                                    'mirror test completed'
+                                ]
+                                
+                                # Check for explicit failure indicators (more specific)
+                                failure_indicators = [
+                                    'exit code: 1',
+                                    'exit code: 2', 
+                                    'exit code: 100',
+                                    'exit code: 127',
+                                    'return code: 1',
+                                    'return code: 2',
+                                    'return code: 100',
+                                    'return code: 127',
+                                    'build failed',
+                                    'test failed',
+                                    'mirror test failed',
+                                    'fatal error',
+                                    'critical error',
+                                    'build error:',
+                                    'test error:',
+                                    'command failed with exit code',
+                                    'podman build failed',
+                                    'docker build failed',
+                                    'exit status 100',
+                                    'exit status 1',
+                                    'exit status 2',
+                                    'exit status 127',
+                                    'error: building at step',
+                                    'while running runtime: exit status',
+                                    'error: failed to solve',
+                                    'failed to build',
+                                    'build process failed'
+                                ]
+                                
+                                # Check for success and failure indicators
+                                is_success = any(indicator in log_lower for indicator in success_indicators)
+                                is_failure = any(indicator in log_lower for indicator in failure_indicators)
+                                
+                                # Priority: Failure indicators override success indicators
+                                # This handles cases where a build might have success messages but ultimately failed
+                                if is_failure:
+                                    failed.append({'dist': dist, 'date': test_date})
+                                elif is_success:
+                                    successful.append({'dist': dist, 'date': test_date})
+                                else:
+                                    # If unclear, analyze the log more carefully
+                                    log_lines = log_content.split('\n')
+                                    
+                                    # Check for build container errors in the log
+                                    has_container_error = any('error: building at step' in line.lower() or 
+                                                            'while running runtime: exit status' in line.lower() or
+                                                            'failed to solve' in line.lower() for line in log_lines)
+                                    
+                                    # Check the last few lines for final status
+                                    last_lines = log_lines[-15:] if len(log_lines) > 15 else log_lines
+                                    last_content = '\n'.join(last_lines).lower()
+                                    
+                                    # Look for completion patterns in the end
+                                    has_completion = any(pattern in last_content for pattern in [
+                                        'build completed', 'test completed', 'finished successfully',
+                                        'all tests passed', 'mirror test completed', 'repository test successful'
+                                    ])
+                                    
+                                    # If we have container errors, it's a failure
+                                    if has_container_error:
+                                        failed.append({'dist': dist, 'date': test_date})
+                                    # If we have completion indicators, it's successful
+                                    elif has_completion:
+                                        successful.append({'dist': dist, 'date': test_date})
+                                    else:
+                                        # Default to failed if we can't determine success
+                                        failed.append({'dist': dist, 'date': test_date})
+                                        
+                            except Exception as e:
+                                # If we can't read the log, assume it's a failure
+                                failed.append({'dist': dist, 'date': 'Unknown'})
                     
                     self.send_response(200)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()
                     self.wfile.write(json.dumps({
                         'total': total,
-                        'tested': tested
+                        'tested': tested,
+                        'successful': successful,
+                        'failed': failed
                     }).encode())
                     
                 else:
@@ -1084,14 +1695,99 @@ class WebInterface:
         
         logger.info(f"Web interface started on http://localhost:{self.port}")
         print(f"\n🌐 Web interface available at: http://localhost:{self.port}")
-        print(f"📝 Build logs saved to: {LOG_DIR}")
-        print(f"🔧 Dockerfiles saved to: {BUILD_DIR}\n")
+        print(f"📝 Build logs saved to: {self.tester.log_dir}")
+        print(f"🔧 Dockerfiles saved to: {self.tester.build_dir}\n")
     
     def stop(self):
         """Stop the web server."""
         if self.server:
             self.server.shutdown()
             self.thread.join()
+
+
+def run_simple_cli(tester):
+    """Simple text-based CLI fallback when curses fails."""
+    print("\n" + "="*60)
+    print("Mirror Test - Simple Text Interface")
+    print("="*60)
+    
+    while True:
+        print("\nAvailable commands:")
+        print("1. Test all distributions")
+        print("2. Test specific distribution")
+        print("3. List distributions")
+        print("4. View logs")
+        print("5. View Dockerfile")
+        print("6. Exit")
+        
+        try:
+            choice = input("\nEnter your choice (1-6): ").strip()
+            
+            if choice == '1':
+                print("\nTesting all distributions...")
+                results = tester.test_all()
+                print("\nResults:")
+                for dist, result in results.items():
+                    status = "✓ PASSED" if result['success'] else "✗ FAILED"
+                    print(f"  {dist}: {status}")
+                    
+            elif choice == '2':
+                distributions = tester.get_distributions()
+                print(f"\nAvailable distributions: {', '.join(distributions)}")
+                dist = input("Enter distribution name: ").strip()
+                if dist in distributions:
+                    print(f"\nTesting {dist}...")
+                    success, stdout, stderr = tester.test_distribution(dist)
+                    status = "✓ PASSED" if success else "✗ FAILED"
+                    print(f"Result: {status}")
+                else:
+                    print(f"Distribution '{dist}' not found")
+                    
+            elif choice == '3':
+                distributions = tester.get_distributions()
+                print(f"\nConfigured distributions: {', '.join(distributions)}")
+                
+            elif choice == '4':
+                distributions = tester.get_distributions()
+                print(f"\nAvailable distributions: {', '.join(distributions)}")
+                dist = input("Enter distribution name: ").strip()
+                if dist in distributions:
+                    logs = tester.get_latest_log(dist)
+                    print(f"\nLogs for {dist}:")
+                    print("-" * 40)
+                    print(logs.get('full', 'No logs available'))
+                else:
+                    print(f"Distribution '{dist}' not found")
+                    
+            elif choice == '5':
+                distributions = tester.get_distributions()
+                print(f"\nAvailable distributions: {', '.join(distributions)}")
+                dist = input("Enter distribution name: ").strip()
+                if dist in distributions:
+                    dockerfile = tester.get_dockerfile(dist)
+                    print(f"\nDockerfile for {dist}:")
+                    print("-" * 40)
+                    print(dockerfile)
+                else:
+                    print(f"Distribution '{dist}' not found")
+                    
+            elif choice == '6':
+                print("Goodbye!")
+                break
+                
+            else:
+                print("Invalid choice. Please enter 1-6.")
+                
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            break
+        except Exception as e:
+            print(f"Error: {e}")
+
+
+
+
+# TUI support removed
 
 
 def main():
@@ -1105,6 +1801,7 @@ Examples:
   mirror-test debian              # Test only Debian
   mirror-test debian ubuntu       # Test Debian and Ubuntu
   mirror-test gui                 # Launch web interface
+  mirror-test cli                 # Launch simple CLI interface
   mirror-test logs debian         # Show latest logs for Debian
   mirror-test dockerfile debian   # Show generated Dockerfile for Debian
   mirror-test --config /path/to/config.yaml  # Use custom config file
@@ -1113,21 +1810,24 @@ Examples:
     
     parser.add_argument('command', nargs='*', default=['all'],
                        help='Command or distribution(s) to test')
-    parser.add_argument('--config', default=CONFIG_FILE,
+    parser.add_argument('--config', default=None,
                        help='Path to configuration file')
     parser.add_argument('--port', type=int, default=WEB_PORT,
                        help='Port for web interface (default: 8080)')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Enable verbose output')
+    parser.add_argument('--no-cleanup', action='store_true',
+                       help='Do not clean up images after successful builds')
+    parser.add_argument('--timeout', type=int, default=600,
+                       help='Build timeout in seconds (default: 600)')
     
     args = parser.parse_args()
     
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
-    # Check if running as root (recommended for podman operations)
-    if os.geteuid() != 0:
-        logger.warning("Warning: Not running as root. Some operations may fail.")
+    # Note: User-level podman is supported, no root requirement
+    logger.info("Using user-level podman (no root required)")
     
     # Check for podman
     if shutil.which('podman') is None:
@@ -1135,7 +1835,7 @@ Examples:
         sys.exit(1)
     
     # Initialize tester
-    tester = MirrorTester(args.config)
+    tester = MirrorTester(args.config, cleanup_images=not args.no_cleanup)
     
     # Handle commands
     if not args.command or args.command[0] == 'all':
@@ -1177,13 +1877,99 @@ Examples:
         except KeyboardInterrupt:
             print("\nShutting down web server...")
             web.stop()
+    
+    elif args.command[0] == 'cli':
+        # Launch simple CLI interface
+        print(" support has been removed. Using simple CLI interface...")
+        run_simple_cli(tester)
+            
+            
+    elif args.command[0] == 'list':
+        # List all configured distributions
+        print("Configured distributions:")
+        print("-" * 60)
+        print(f"{'Distribution':<20} {'Base Image':<20} {'Package Manager':<15}")
+        print("-" * 60)
+        
+        distributions = tester.get_distributions()
+        if not distributions:
+            print("No distributions configured")
+        else:
+            for dist_name in sorted(distributions):
+                dist_config = tester.config[dist_name]
+                base_image = dist_config.get('base-image', dist_config.get('pull', 'unknown'))
+                package_manager = dist_config.get('package-manager', 'unknown')
+                print(f"{dist_name:<20} {base_image:<20} {package_manager:<15}")
+        
+        print(f"\nTotal: {len(distributions)} distributions")
+        
+    elif args.command[0] == 'variables':
+        # Show configured variables and their expanded values
+        print("Configuration variables:")
+        print("-" * 40)
+        
+        if 'variables' in tester.config:
+            for var_name, var_value in tester.config['variables'].items():
+                # Expand variables
+                expanded_value = tester.substitute_variables(str(var_value))
+                print(f"{var_name:<20} = {expanded_value}")
+        else:
+            print("No variables configured")
+        
+        print(f"\nTotal: {len(tester.config.get('variables', {}))} variables")
+        
+    elif args.command[0] == 'validate':
+        # Validate configuration file syntax
+        print("Validating configuration...")
+        
+        try:
+            # Test loading configuration
+            test_config = tester.load_config()
+            
+            # Check for required sections
+            if 'variables' not in test_config:
+                print("⚠️  Warning: No variables section found")
+            else:
+                print("✓ Variables section found")
+            
+            if 'package-managers' not in test_config:
+                print("⚠️  Warning: No package-managers section found")
+            else:
+                print("✓ Package-managers section found")
+            
+            # Check distributions
+            distributions = tester.get_distributions()
+            if not distributions:
+                print("⚠️  Warning: No distributions configured")
+            else:
+                print(f"✓ {len(distributions)} distributions configured")
+                
+                # Validate each distribution
+                for dist_name in distributions:
+                    dist_config = test_config[dist_name]
+                    required_fields = ['base-image', 'package-manager', 'sources']
+                    missing_fields = [field for field in required_fields if field not in dist_config]
+                    
+                    if missing_fields:
+                        print(f"⚠️  Warning: {dist_name} missing fields: {', '.join(missing_fields)}")
+                    else:
+                        print(f"✓ {dist_name} configuration valid")
+            
+            print("\n✓ Configuration is valid")
+            
+        except Exception as e:
+            print(f"✗ Configuration validation failed: {e}")
+            sys.exit(1)
             
     elif args.command[0] == 'cleanup':
-        # Clean up all mirror-test images
+        # Clean up all mirror-test images and dangling images
         print("Cleaning up all mirror-test images...")
+        
+        # First, clean up tagged mirror-test images
         cleanup_cmd = ["podman", "images", "-q", "--filter", "reference=mirror-test:*"]
         result = subprocess.run(cleanup_cmd, capture_output=True, text=True)
         
+        tagged_count = 0
         if result.stdout:
             images = result.stdout.strip().split('\n')
             for image_id in images:
@@ -1191,18 +1977,36 @@ Examples:
                     remove_cmd = ["podman", "rmi", "-f", image_id]
                     rm_result = subprocess.run(remove_cmd, capture_output=True, text=True)
                     if rm_result.returncode == 0:
-                        print(f"  ✓ Removed image {image_id[:12]}")
+                        print(f"  ✓ Removed tagged image {image_id[:12]}")
+                        tagged_count += 1
                     else:
                         print(f"  ✗ Failed to remove {image_id[:12]}: {rm_result.stderr}")
-            print(f"\nCleaned up {len(images)} mirror-test images")
-        else:
-            print("No mirror-test images found to clean up")
         
-        # Also prune dangling build cache
+        # Clean up dangling images (untagged images)
+        print("\nCleaning up dangling images...")
+        dangling_cmd = ["podman", "images", "-q", "--filter", "dangling=true"]
+        dangling_result = subprocess.run(dangling_cmd, capture_output=True, text=True)
+        
+        dangling_count = 0
+        if dangling_result.stdout:
+            dangling_images = dangling_result.stdout.strip().split('\n')
+            for image_id in dangling_images:
+                if image_id:
+                    remove_cmd = ["podman", "rmi", "-f", image_id]
+                    rm_result = subprocess.run(remove_cmd, capture_output=True, text=True)
+                    if rm_result.returncode == 0:
+                        print(f"  ✓ Removed dangling image {image_id[:12]}")
+                        dangling_count += 1
+                    else:
+                        print(f"  ✗ Failed to remove dangling {image_id[:12]}: {rm_result.stderr}")
+        
+        # Also prune build cache
         print("\nPruning build cache...")
         prune_cmd = ["podman", "system", "prune", "-f", "--filter", "until=1h"]
         subprocess.run(prune_cmd, capture_output=True)
         print("Build cache pruned")
+        
+        print(f"\nCleaned up {tagged_count} tagged images and {dangling_count} dangling images")
             
     elif args.command[0] == 'logs':
         # Show logs for specific distribution
@@ -1253,11 +2057,11 @@ Examples:
         print("="*60)
         
         # Show where to find detailed logs
-        print(f"\nDetailed build logs saved to: {LOG_DIR}")
-        print(f"Dockerfiles saved to: {BUILD_DIR}")
+        print(f"\nDetailed build logs saved to: {tester.log_dir}")
+        print(f"Dockerfiles saved to: {tester.build_dir}")
         for dist in distributions:
             if dist in results:
-                print(f"  • {dist}: {LOG_DIR}/{dist}_latest.log")
+                print(f"  • {dist}: {tester.log_dir}/{dist}_latest.log")
 
 
 if __name__ == "__main__":

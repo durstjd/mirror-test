@@ -1,5 +1,5 @@
 # Mirror Test User Manual
-**Version 2.0.0** | **January 2025**
+**Version 2.1.0** | **September 2025**
 
 ---
 
@@ -11,10 +11,11 @@
 4. [Usage](#4-usage)
 5. [Commands Reference](#5-commands-reference)
 6. [Web Interface](#6-web-interface)
-7. [Terminal Interface](#7-terminal-interface)
-8. [Troubleshooting](#8-troubleshooting)
-9. [Examples](#9-examples)
-10. [Appendix](#10-appendix)
+7. [CLI Interface](#7-cli-interface)
+8. [Release Packages](#8-release-packages)
+9. [Troubleshooting](#9-troubleshooting)
+10. [Examples](#10-examples)
+11. [Appendix](#11-appendix)
 
 ---
 
@@ -26,29 +27,76 @@ Mirror Test is a comprehensive tool for validating local Linux repository mirror
 - **Multi-distribution support** - Test Debian, Ubuntu, RHEL, SUSE, Alpine, and more
 - **Variable substitution** - Define mirror URLs once, use everywhere
 - **Customizable tests** - Configure package manager commands and test packages
-- **Dual interface** - Web GUI and terminal CLI with mouse support
+- **Modern web interface** - Beautiful, responsive web GUI with real-time updates
+- **Simple CLI interface** - Clean command-line interface for automation
+- **Build status tracking** - Visual panels showing successful and failed builds with timestamps
+- **Clickable build items** - Click any build to instantly load its logs
 - **Automated cleanup** - No residual images left after testing
 - **Comprehensive logging** - Detailed logs for debugging
+- **Offline installation** - Complete packages for air-gapped systems
 
 ### System Requirements
-- Linux operating system
+- Linux operating system (Windows/macOS supported for development)
 - Podman or Docker installed
 - Python 3.6 or higher
-- Root access (recommended)
+- PyYAML library
+- Root access (recommended for Podman)
 - Minimum 2GB RAM
 - 10GB free disk space
+
+### Project Structure
+```
+mirror-test/
+├── mirror-test.py              # Main application
+├── setup-script.sh             # Online installation script
+├── offline-setup-script.sh     # Offline installation script
+├── prepare-release.sh          # Release preparation script
+├── uninstall.sh                # Uninstall script
+├── bash-autocomplete.sh        # Bash completion
+├── full-config-example.yaml    # Example configuration
+├── README.md                  # This file
+└── UNINSTALL.md              # Uninstall documentation
+```
 
 ---
 
 ## 2. Installation
 
-### Quick Install
+### Online Installation (Recommended)
+
+For systems with internet access:
 
 ```bash
 # Download and run the setup script
 wget https://example.com/setup-mirror-test.sh
 chmod +x setup-mirror-test.sh
 sudo ./setup-mirror-test.sh
+```
+
+### Offline Installation
+
+For air-gapped systems or systems without internet access:
+
+1. **Prepare offline package on a system with internet:**
+```bash
+# Download the offline preparation script
+wget https://example.com/prepare-offline-deps.sh
+chmod +x prepare-offline-deps.sh
+./prepare-offline-deps.sh
+
+# Create offline package
+tar -czf mirror-test-offline-2.1.0.tar.gz mirror-test-offline-deps/
+```
+
+2. **Transfer and install on target system:**
+```bash
+# Extract the offline package
+tar -xzf mirror-test-offline-2.1.0.tar.gz
+cd mirror-test-offline-deps
+
+# Install using offline setup script
+chmod +x install-offline.sh
+./install-offline.sh
 ```
 
 ### Manual Installation
@@ -67,9 +115,9 @@ sudo zypper install python3 python3-PyYAML podman bash-completion
 
 2. **Copy files:**
 ```bash
-sudo cp mirror-test /usr/bin/
-sudo chmod +x /usr/bin/mirror-test
-sudo cp mirror-test-completion /etc/bash_completion.d/mirror-test
+sudo cp mirror-test.py /usr/local/bin/mirror-test
+sudo chmod +x /usr/local/bin/mirror-test
+sudo cp bash-autocomplete.sh /etc/bash_completion.d/mirror-test
 ```
 
 3. **Create directories:**
@@ -91,6 +139,30 @@ source /etc/bash_completion.d/mirror-test
 # Test autocomplete
 mirror-test <TAB><TAB>
 ```
+
+### Uninstallation
+
+To remove Mirror Test from your system, use the provided uninstall scripts:
+
+```bash
+# Linux/Unix - Remove all installations
+./uninstall.sh
+
+# Linux/Unix - Remove only user installation
+./uninstall.sh --user --yes
+
+# Linux/Unix
+./uninstall.sh
+```
+
+**Available Options:**
+- `--system` - Remove only system-wide installation
+- `--user` - Remove only user-level installation  
+- `--cleanup` - Also clean up containers and images
+- `--yes` - Skip confirmation prompts
+- `--help` - Show detailed help
+
+For more information, see [UNINSTALL.md](UNINSTALL.md).
 
 ---
 
@@ -328,9 +400,14 @@ systemctl start mirror-test-web
 
 ### Web Interface Features
 
-- **Distribution Selection** - Multi-select dropdown
-- **Real-time Testing** - Watch build progress live
-- **Log Viewer** - Separate tabs for output, errors, Dockerfile
+- **Distribution Selection** - Multi-select dropdown with all configured distributions
+- **Real-time Testing** - Watch build progress live with live updates
+- **Build Status Panels** - Visual panels showing successful and failed builds with timestamps
+- **Clickable Build Items** - Click any build item to instantly load its logs
+- **Log Viewer** - Separate tabs for output, errors, Dockerfile, and full logs
+- **Statistics Dashboard** - Shows total configured, recently tested, successful, and failed builds
+- **Auto-refresh** - Statistics and build status update automatically
+- **Responsive Design** - Works on desktop and mobile devices
 - **Keyboard Shortcuts**:
   - `Ctrl+R` - Run test
   - `Ctrl+L` - Load logs
@@ -340,47 +417,132 @@ systemctl start mirror-test-web
 
 Open your browser to: `http://localhost:8080`
 
+The interface provides a modern, intuitive way to manage and monitor your repository testing with real-time updates and comprehensive build tracking.
+
 ---
 
-## 7. Terminal Interface
+## 7. CLI Interface
 
-### Starting the Terminal Interface
+### Starting the CLI Interface
 
 ```bash
 mirror-test cli
 ```
 
-### Terminal Interface Features
+### CLI Interface Features
 
-- **Mouse Support** - Click to select and navigate
-- **Keyboard Navigation** - Full keyboard control
-- **Multiple Tabs** - Switch between output, errors, Dockerfile, full log
-- **Real-time Updates** - See test progress as it happens
+- **Simple and Clean** - Easy-to-use command-line interface
+- **Interactive Menus** - Step-by-step guidance for testing
+- **Real-time Progress** - See test progress as it happens
+- **Comprehensive Logging** - Detailed output for debugging
+- **Automated Workflows** - Perfect for scripting and automation
 
-### Keyboard Shortcuts
+### CLI Commands
 
-| Key | Action |
-|-----|--------|
-| F1 | Run test |
-| F2 | Load logs |
-| F3 | View Dockerfile |
-| F5 | Refresh |
-| F10 or q | Exit |
-| Tab | Next tab |
-| Shift+Tab | Previous tab |
-| ↑/↓ | Scroll |
-| Page Up/Down | Fast scroll |
-| Space | Select distribution |
+The CLI interface provides an interactive menu system that guides you through:
 
-### Mouse Actions
+1. **Select Distributions** - Choose which distributions to test
+2. **Run Tests** - Execute the selected tests
+3. **View Results** - See detailed results and logs
+4. **Cleanup** - Remove test images when done
 
-- **Click distribution** - Select/deselect
-- **Click tab** - Switch view
-- **Scroll wheel** - Scroll content
+### Command Line Usage
+
+For automation and scripting, you can use Mirror Test directly from the command line:
+
+```bash
+# Test all distributions
+mirror-test
+
+# Test specific distributions
+mirror-test debian ubuntu rocky
+
+# View logs for a distribution
+mirror-test logs debian
+
+# Show generated Dockerfile
+mirror-test dockerfile debian
+
+# Clean up test images
+mirror-test cleanup
+
+# List all configured distributions
+mirror-test list
+
+# Show configuration variables
+mirror-test variables
+
+# Validate configuration
+mirror-test validate
+```
 
 ---
 
-## 8. Troubleshooting
+## 8. Release Packages
+
+Mirror Test provides both online and offline installation packages for different deployment scenarios.
+
+### Online Installation Package
+
+**File:** `mirror-test-online-{VERSION}.tar.gz`
+
+**Contents:**
+- Core application files
+- Setup scripts for online installation
+- Configuration examples
+- Documentation
+
+**Installation:**
+```bash
+tar -xzf mirror-test-online-2.1.0.tar.gz
+cd mirror-test-2.1.0
+./setup-script.sh
+```
+
+### Offline Installation Package
+
+**File:** `mirror-test-offline-{VERSION}.tar.gz`
+
+**Contents:**
+- All online package contents
+- Pre-downloaded Python dependencies (PyYAML)
+- Pre-downloaded system dependencies (Podman binaries)
+- Offline installation scripts
+- System package installation guides
+
+**Installation:**
+```bash
+tar -xzf mirror-test-offline-2.1.0.tar.gz
+cd mirror-test-offline-deps
+./install-offline.sh
+```
+
+### Creating Release Packages
+
+Use the provided scripts to create release packages:
+
+```bash
+# Create online package
+./prepare-release.sh
+
+# Create offline dependencies (run on system with internet)
+./prepare-offline-deps.sh
+
+# Create offline package
+tar -czf mirror-test-offline-2.1.0.tar.gz mirror-test-offline-deps/
+```
+
+### Package Features
+
+- **Multi-platform Support** - Works on Linux (various distributions) and macOS
+- **Architecture Detection** - Automatically detects and downloads correct binaries
+- **Dependency Management** - Handles all required dependencies
+- **Installation Verification** - Tests installation after setup
+- **Comprehensive Documentation** - Includes setup guides and troubleshooting
+
+---
+
+## 9. Troubleshooting
 
 ### Common Issues
 
@@ -603,4 +765,4 @@ mirror-test --verbose debian   # Detailed output
 
 ---
 
-**End of Manual** | Version 2.0.0 | January 2025
+**End of Manual** | Version 2.1.0 | September 2025
