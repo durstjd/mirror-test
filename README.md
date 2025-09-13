@@ -542,7 +542,7 @@ tar -czf mirror-test-offline-2.1.0.tar.gz mirror-test-offline-deps/
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 ### Common Issues
 
@@ -679,7 +679,7 @@ MIRROR_HOST=prod-mirror.company.com mirror-test
 
 ---
 
-## 10. Appendix
+## 11. Appendix
 
 ### A. Supported Package Managers
 
