@@ -542,7 +542,7 @@ tar -czf mirror-test-offline-2.1.0.tar.gz mirror-test-offline-deps/
 
 ---
 
-## 10. Troubleshooting
+## 9. Troubleshooting
 
 ### Common Issues
 
@@ -600,7 +600,7 @@ ls -la /var/log/mirror-test/
 
 ---
 
-## 9. Examples
+## 10. Examples
 
 ### Example 1: Basic Mirror Testing
 
