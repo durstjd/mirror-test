@@ -40,7 +40,7 @@ Mirror Test is a comprehensive tool for validating local Linux repository mirror
 - Podman installed
 - Python 3.6 or higher
 - PyYAML library
-- Root access (recommended for Podman)
+- Root access (/etc/sub{uid,gid} configuration)
 - Minimum 2GB RAM
 - 10GB free disk space
 
