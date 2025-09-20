@@ -37,7 +37,7 @@ Mirror Test is a comprehensive tool for validating local Linux repository mirror
 
 ### System Requirements
 - Linux operating system (Windows/macOS supported for development)
-- Podman or Docker installed
+- Podman installed
 - Python 3.6 or higher
 - PyYAML library
 - Root access (recommended for Podman)
