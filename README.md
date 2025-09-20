@@ -600,7 +600,7 @@ ls -la /var/log/mirror-test/
 
 ---
 
-## 9. Examples
+## 10. Examples
 
 ### Example 1: Basic Mirror Testing
 
@@ -679,7 +679,7 @@ MIRROR_HOST=prod-mirror.company.com mirror-test
 
 ---
 
-## 10. Appendix
+## 11. Appendix
 
 ### A. Supported Package Managers
 
