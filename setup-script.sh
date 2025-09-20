@@ -44,6 +44,148 @@ fi
 
 print_status "Starting mirror-test installation (v2.0.0)..."
 
+# Function to check Python version
+check_python_version() {
+    local python_cmd="$1"
+    local version_output
+    local major_version
+    local minor_version
+    
+    if ! command -v "$python_cmd" &> /dev/null; then
+        return 1
+    fi
+    
+    # Get Python version
+    version_output=$($python_cmd --version 2>&1)
+    if [[ $version_output =~ Python\ ([0-9]+)\.([0-9]+) ]]; then
+        major_version=${BASH_REMATCH[1]}
+        minor_version=${BASH_REMATCH[2]}
+        
+        # Check if version is 3.8 or greater
+        if [ "$major_version" -eq 3 ] && [ "$minor_version" -ge 8 ]; then
+            return 0
+        elif [ "$major_version" -gt 3 ]; then
+            return 0
+        else
+            return 1
+        fi
+    else
+        return 1
+    fi
+}
+
+# Function to find alternative Python versions
+find_alternative_python() {
+    local alternatives=()
+    local python_commands=("python3" "python3.11" "python3.10" "python3.9" "python3.8" "python" "python3.12" "python3.13")
+    
+    for cmd in "${python_commands[@]}"; do
+        if check_python_version "$cmd"; then
+            alternatives+=("$cmd")
+        fi
+    done
+    
+    printf '%s\n' "${alternatives[@]}"
+}
+
+# Check Python version
+print_status "Checking Python version..."
+
+# Check if user specified a Python command via environment variable
+if [ -n "$PYTHON_CMD" ]; then
+    if check_python_version "$PYTHON_CMD"; then
+        print_status "Using user-specified Python: $PYTHON_CMD ($($PYTHON_CMD --version))"
+    else
+        print_error "User-specified Python command '$PYTHON_CMD' is not Python 3.8 or greater"
+        print_warning "Current version: $($PYTHON_CMD --version 2>&1)"
+        exit 1
+    fi
+else
+    # Try different Python commands in order of preference
+    python_commands=("python3" "python" "python3.11" "python3.10" "python3.9" "python3.8")
+    PYTHON_CMD=""
+
+    for cmd in "${python_commands[@]}"; do
+        if check_python_version "$cmd"; then
+            PYTHON_CMD="$cmd"
+            print_status "Found Python $($cmd --version) at $cmd"
+            break
+        fi
+    done
+fi
+
+if [ -z "$PYTHON_CMD" ]; then
+    print_error "Python 3.8 or greater is required but not found"
+    print_warning "Current Python versions found:"
+    
+    # Check what Python versions are available
+    for cmd in python3 python python3.11 python3.10 python3.9 python3.8 python3.7 python3.6; do
+        if command -v "$cmd" &> /dev/null; then
+            version=$($cmd --version 2>&1)
+            print_warning "  $cmd: $version"
+        fi
+    done
+    
+    echo
+    print_info "To use a different version of Python:"
+    print_info "1. Install Python 3.8+ using your package manager:"
+    case $OS in
+        debian|ubuntu) 
+            echo "    sudo apt-get install python3.8 python3.8-venv python3.8-dev"
+            echo "    # Or for newer versions:"
+            echo "    sudo apt-get install python3.11 python3.11-venv python3.11-dev"
+            ;;
+        fedora|rhel|centos|rocky|almalinux) 
+            echo "    sudo dnf install python3.8 python3.8-devel"
+            echo "    # Or for newer versions:"
+            echo "    sudo dnf install python3.11 python3.11-devel"
+            ;;
+        opensuse*) 
+            echo "    sudo zypper install python38 python38-devel"
+            echo "    # Or for newer versions:"
+            echo "    sudo zypper install python311 python311-devel"
+            ;;
+        alpine) 
+            echo "    sudo apk add python3.8 python3.8-dev"
+            echo "    # Or for newer versions:"
+            echo "    sudo apk add python3.11 python3.11-dev"
+            ;;
+        arch|manjaro) 
+            echo "    sudo pacman -S python python-pip"
+            ;;
+    esac
+    
+    print_info "2. Use update-alternatives to manage multiple Python versions:"
+    echo "    sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1"
+    echo "    sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 2"
+    echo "    sudo update-alternatives --config python3"
+    
+    print_info "3. Or use pyenv to manage Python versions (no sudo required):"
+    echo "    curl https://pyenv.run | bash"
+    echo "    pyenv install 3.11.0"
+    echo "    pyenv global 3.11.0"
+    
+    print_info "4. Or specify a specific Python version when running this script:"
+    echo "    PYTHON_CMD=python3.11 ./setup-script.sh"
+    
+    echo
+    print_error "Installation cannot proceed with Python 3.6 or older"
+    exit 1
+fi
+
+# Check if the found Python version is 3.6 or older (shouldn't happen due to check above, but extra safety)
+python_version=$($PYTHON_CMD --version 2>&1)
+if [[ $python_version =~ Python\ ([0-9]+)\.([0-9]+) ]]; then
+    major_version=${BASH_REMATCH[1]}
+    minor_version=${BASH_REMATCH[2]}
+    
+    if [ "$major_version" -eq 3 ] && [ "$minor_version" -le 6 ]; then
+        print_error "Python 3.6 or older detected: $python_version"
+        print_error "Python 3.8 or greater is required"
+        exit 1
+    fi
+fi
+
 # Detect distribution
 if [ -f /etc/os-release ]; then
     . /etc/os-release
@@ -202,12 +344,12 @@ else
     fi
     
     # Check for PyYAML
-    if ! python3 -c "import yaml" 2>/dev/null; then
+    if ! $PYTHON_CMD -c "import yaml" 2>/dev/null; then
         print_warning "PyYAML not found, installing via pip (user-level)..."
-        pip3 install --user pyyaml
+        $PYTHON_CMD -m pip install --user pyyaml
         if [ $? -ne 0 ]; then
             print_error "Failed to install PyYAML. Please install it manually:"
-            echo "  pip3 install --user pyyaml"
+            echo "  $PYTHON_CMD -m pip install --user pyyaml"
             echo "  Or with system package manager:"
             case $OS in
                 debian|ubuntu) echo "    sudo apt-get install python3-yaml" ;;
@@ -279,7 +421,11 @@ print_status "Installing mirror-test executable..."
 if [ -f "mirror-test" ]; then
     cp mirror-test "$BIN_DIR/mirror-test"
 elif [ -f "mirror-test.py" ]; then
+    # Copy the Python script and update the shebang to use the detected Python command
     cp mirror-test.py "$BIN_DIR/mirror-test"
+    # Update the shebang to use the detected Python command
+    sed -i "1s|#!/usr/bin/env python3|#!/usr/bin/env $PYTHON_CMD|" "$BIN_DIR/mirror-test"
+    print_info "Updated shebang to use $PYTHON_CMD"
 else
     print_error "mirror-test executable not found in current directory"
     print_warning "Please copy the Python script to $BIN_DIR/mirror-test manually"
@@ -304,19 +450,34 @@ _mirror_test_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     
-    base_commands="all gui cli logs dockerfile cleanup list variables validate help"
+    base_commands="all gui cli refresh logs dockerfile cleanup list variables validate help"
     opts="--config --port --verbose --quiet --timeout --no-cleanup --version --help -v -q -h"
     
+    # Get distributions from config file using Python (refreshed on every run)
+    distributions=""
     config_file="$HOME/.config/mirror-test/mirror-test.yaml"
-    if [[ -f "$config_file" ]]; then
-        distributions=$(grep -E '^[a-zA-Z]' "$config_file" | \
-                       grep -v '^variables:' | \
-                       grep -v '^package-managers:' | \
-                       sed 's/:.*//' | \
-                       grep -v '^#' | \
-                       sort -u | \
-                       tr '\n' ' ')
-    else
+    if [ -f "$config_file" ]; then
+        distributions=$(python3 -c "
+import yaml
+import sys
+try:
+    with open('$config_file', 'r') as f:
+        config = yaml.safe_load(f)
+    if config and 'distributions' in config and isinstance(config['distributions'], dict):
+        print(' '.join(config['distributions'].keys()))
+    elif config:
+        # Fallback for flat structure, exclude known system keys
+        excluded_keys = {'variables', 'package-managers', 'distributions'}
+        dist_keys = [key for key in config.keys() 
+                    if key not in excluded_keys and isinstance(key, str)]
+        print(' '.join(dist_keys))
+except Exception as e:
+    pass
+" 2>/dev/null)
+    fi
+    
+    # Use default distributions if none found
+    if [ -z "$distributions" ]; then
         distributions="debian ubuntu rocky almalinux fedora centos opensuse alpine"
     fi
     
@@ -342,8 +503,33 @@ _mirror_test_completions() {
             COMPREPLY=( $(compgen -W "${distributions}" -- ${cur}) )
             return 0
             ;;
+        gui|cli|cleanup|all|list|variables|validate|help|refresh)
+            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+            return 0
+            ;;
+        -*)
+            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+            return 0
+            ;;
         *)
-            COMPREPLY=( $(compgen -W "${base_commands} ${distributions} ${opts}" -- ${cur}) )
+            # Check if we're completing distribution names
+            local found_command=false
+            
+            # Find if a command has been specified
+            for (( i=1; i < ${#COMP_WORDS[@]}-1; i++ )); do
+                if [[ " ${base_commands} " =~ " ${COMP_WORDS[$i]} " ]]; then
+                    found_command=true
+                    break
+                fi
+            done
+            
+            if [[ "$found_command" == false ]]; then
+                # No command yet, might be listing distributions to test
+                COMPREPLY=( $(compgen -W "${distributions} ${opts}" -- ${cur}) )
+            else
+                # Command already specified, show options
+                COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+            fi
             return 0
             ;;
     esac
@@ -606,11 +792,11 @@ else
     print_error "Installation test failed"
     if [ "$INSTALL_MODE" = "user" ]; then
         print_warning "Trying to fix Python dependencies..."
-        pip3 install --user pyyaml 2>/dev/null || true
+        $PYTHON_CMD -m pip install --user pyyaml 2>/dev/null || true
         # Web interface uses built-in Python http.server module
     else
         print_warning "Trying to fix Python dependencies..."
-        pip3 install pyyaml 2>/dev/null || true
+        $PYTHON_CMD -m pip install pyyaml 2>/dev/null || true
         # Web interface uses built-in Python http.server module
     fi
 fi

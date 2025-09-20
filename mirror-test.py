@@ -244,13 +244,13 @@ class MirrorTester:
                 for i, cmd in enumerate(dist_test_commands):
                     substituted_cmd = self.substitute_variables(cmd)
                     if i > 0:
-                        dockerfile += "    && "
-                    dockerfile += f"{substituted_cmd} \\\n"
-                dockerfile += "    && echo 'Repository test successful'\n"
+                        dockerfile += "     "
+                    dockerfile += f"{substituted_cmd} && \\\n"
+                dockerfile += "     echo 'Repository test successful'\n"
             else:
                 dockerfile += "# Basic repository test\n"
                 dockerfile += "RUN apt-get install -y --no-install-recommends apt-utils && \\\n"
-                dockerfile += "    && echo 'Repository test successful'\n"
+                dockerfile += "    echo 'Repository test successful'\n"
             
         elif package_manager in ['yum', 'dnf']:
             # RHEL/CentOS/Rocky/Fedora
@@ -300,16 +300,16 @@ class MirrorTester:
                 for i, cmd in enumerate(dist_test_commands):
                     substituted_cmd = self.substitute_variables(cmd)
                     if i > 0:
-                        dockerfile += "    && "
-                    dockerfile += f"{substituted_cmd} \\\n"
-                dockerfile += "    && echo 'Repository test successful'\n"
+                        dockerfile += "      "
+                    dockerfile += f"{substituted_cmd} && \\\n"
+                dockerfile += "    echo 'Repository test successful'\n"
             else:
                 dockerfile += "# Basic repository test\n"
                 if package_manager == 'dnf':
                     dockerfile += "RUN dnf install -y dnf-utils && \\\n"
                 else:
                     dockerfile += "RUN yum install -y yum-utils && \\\n"
-                dockerfile += "    && echo 'Repository test successful'\n"
+                dockerfile += "    echo 'Repository test successful'\n"
             
         elif package_manager == 'zypper':
             # openSUSE/SLES
@@ -345,13 +345,13 @@ class MirrorTester:
                 for i, cmd in enumerate(dist_test_commands):
                     substituted_cmd = self.substitute_variables(cmd)
                     if i > 0:
-                        dockerfile += "    && "
-                    dockerfile += f"{substituted_cmd} \\\n"
-                dockerfile += "    && echo 'Repository test successful'\n"
+                        dockerfile += "    "
+                    dockerfile += f"{substituted_cmd} && \\\n"
+                dockerfile += "    echo 'Repository test successful'\n"
             else:
                 dockerfile += "# Basic repository test\n"
                 dockerfile += "RUN zypper --non-interactive install -y zypper && \\\n"
-                dockerfile += "    && echo 'Repository test successful'\n"
+                dockerfile += "    echo 'Repository test successful'\n"
             
         elif package_manager == 'apk':
             # Alpine
@@ -381,13 +381,13 @@ class MirrorTester:
                 for i, cmd in enumerate(dist_test_commands):
                     substituted_cmd = self.substitute_variables(cmd)
                     if i > 0:
-                        dockerfile += "    && "
-                    dockerfile += f"{substituted_cmd} \\\n"
-                dockerfile += "    && echo 'Repository test successful'\n"
+                        dockerfile += "    "
+                    dockerfile += f"{substituted_cmd} && \\\n"
+                dockerfile += "    echo 'Repository test successful'\n"
             else:
                 dockerfile += "# Basic repository test\n"
                 dockerfile += "RUN apk add --no-cache curl && \\\n"
-                dockerfile += "    && echo 'Repository test successful'\n"
+                dockerfile += "    echo 'Repository test successful'\n"
         
         else:
             # Generic fallback
@@ -1434,6 +1434,10 @@ class WebInterface:
                         e.preventDefault();
                         viewDockerfile();
                         break;
+                    case 'f':
+                        e.preventDefault();
+                        refreshDistributions();
+                        break;
                 }
             }
         });
@@ -1459,10 +1463,45 @@ class WebInterface:
                     self.send_response(200)
                     self.send_header('Content-type', 'application/json')
                     self.end_headers()
-                    # Filter out non-distribution keys (variables, package-managers, etc.)
-                    excluded_keys = {'variables', 'package-managers'}
-                    distributions = [key for key in self.tester.config.keys() if key not in excluded_keys]
-                    self.wfile.write(json.dumps({'distributions': distributions}).encode())
+                    
+                    # Reload config file from disk to get fresh data
+                    distributions = []
+                    try:
+                        import yaml
+                        config_file = os.path.expanduser("~/.config/mirror-test/mirror-test.yaml")
+                        if os.path.exists(config_file):
+                            with open(config_file, 'r') as f:
+                                fresh_config = yaml.safe_load(f)
+                            
+                            if fresh_config and 'distributions' in fresh_config and isinstance(fresh_config['distributions'], dict):
+                                # Nested structure: distributions are under 'distributions' key
+                                distributions = list(fresh_config['distributions'].keys())
+                            elif fresh_config:
+                                # Fallback for flat structure, exclude known system keys
+                                excluded_keys = {'variables', 'package-managers', 'distributions'}
+                                distributions = [key for key in fresh_config.keys() 
+                                               if key not in excluded_keys and isinstance(key, str)]
+                    except Exception as e:
+                        # If reload fails, fall back to cached config
+                        if 'distributions' in self.tester.config and isinstance(self.tester.config['distributions'], dict):
+                            distributions = list(self.tester.config['distributions'].keys())
+                        else:
+                            excluded_keys = {'variables', 'package-managers', 'distributions'}
+                            distributions = [key for key in self.tester.config.keys() 
+                                           if key not in excluded_keys and isinstance(key, str)]
+                    
+                    # Sort distributions numerically (e.g., debian-7, debian-8, debian-10)
+                    def sort_key(dist):
+                        # Extract base name and version number for proper sorting
+                        import re
+                        match = re.match(r'^(.+?)-(\d+)$', dist)
+                        if match:
+                            base, version = match.groups()
+                            return (base, int(version))
+                        return (dist, 0)  # Fallback for non-versioned names
+                    
+                    sorted_distributions = sorted(distributions, key=sort_key)
+                    self.wfile.write(json.dumps({'distributions': sorted_distributions}).encode())
                     
                 elif self.path.startswith('/api/logs/'):
                     dist_name = self.path.split('/')[-1]
@@ -1802,6 +1841,7 @@ Examples:
   mirror-test debian ubuntu       # Test Debian and Ubuntu
   mirror-test gui                 # Launch web interface
   mirror-test cli                 # Launch simple CLI interface
+  mirror-test refresh             # Refresh bash completion
   mirror-test logs debian         # Show latest logs for Debian
   mirror-test dockerfile debian   # Show generated Dockerfile for Debian
   mirror-test --config /path/to/config.yaml  # Use custom config file
@@ -1869,6 +1909,7 @@ Examples:
         print("  Ctrl+R - Run build test")
         print("  Ctrl+L - Load logs")
         print("  Ctrl+D - View Dockerfile")
+        print("  Ctrl+F - Refresh distribution list")
         
         try:
             webbrowser.open(f'http://localhost:{args.port}')
@@ -1877,6 +1918,27 @@ Examples:
         except KeyboardInterrupt:
             print("\nShutting down web server...")
             web.stop()
+    
+    elif args.command[0] == 'refresh':
+        # Refresh bash completion
+        print("Refreshing bash completion...")
+        completion_script = os.path.expanduser("~/.bash_completion.d/mirror-test")
+        if os.path.exists(completion_script):
+            try:
+                # Source the completion script
+                import subprocess
+                result = subprocess.run(['bash', '-c', f'source "{completion_script}"'], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    print("✓ Bash completion refreshed successfully.")
+                else:
+                    print(f"⚠ Warning: Completion script had issues: {result.stderr}")
+            except Exception as e:
+                print(f"⚠ Warning: Could not refresh completion: {e}")
+        else:
+            print("⚠ Warning: Completion script not found at ~/.bash_completion.d/mirror-test")
+            print("  Run the setup script to install completion: ./setup-script.sh")
+        exit(0)
     
     elif args.command[0] == 'cli':
         # Launch simple CLI interface

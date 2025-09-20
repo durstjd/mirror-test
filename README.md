@@ -5,17 +5,17 @@
 
 ## Table of Contents
 
-1. [Introduction](#1-introduction)
-2. [Installation](#2-installation)
-3. [Configuration](#3-configuration)
-4. [Usage](#4-usage)
-5. [Commands Reference](#5-commands-reference)
-6. [Web Interface](#6-web-interface)
-7. [CLI Interface](#7-cli-interface)
-8. [Release Packages](#8-release-packages)
-9. [Troubleshooting](#9-troubleshooting)
-10. [Examples](#10-examples)
-11. [Appendix](#11-appendix)
+1. [Introduction](#introduction)
+2. [Installation](#installation)
+3. [Configuration](#configuration)
+4. [Usage](#usage)
+5. [Commands Reference](#commands-reference)
+6. [Web Interface](#web-interface)
+7. [CLI Interface](#cli-interface)
+8. [Release Packages](#release-packages)
+9. [Troubleshooting](#troubleshooting)
+10. [Examples](#examples)
+11. [Appendix](#appendix)
 
 ---
 
@@ -600,7 +600,7 @@ ls -la /var/log/mirror-test/
 
 ---
 
-## 10. Examples
+## 9. Examples
 
 ### Example 1: Basic Mirror Testing
 
@@ -679,7 +679,7 @@ MIRROR_HOST=prod-mirror.company.com mirror-test
 
 ---
 
-## 11. Appendix
+## 10. Appendix
 
 ### A. Supported Package Managers
 

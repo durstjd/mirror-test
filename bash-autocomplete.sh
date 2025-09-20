@@ -1,6 +1,5 @@
 #!/bin/bash
-# Bash completion for mirror-test
-# Install to: /etc/bash_completion.d/mirror-test
+# Improved bash completion for mirror-test based on arsync approach
 
 _mirror_test_completions() {
     local cur prev opts base_commands distributions
@@ -9,29 +8,35 @@ _mirror_test_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     
     # Base commands
-    base_commands="all gui cli logs dockerfile cleanup list variables validate help"
+    base_commands="all gui cli refresh logs dockerfile cleanup list variables validate help"
     
     # Options
     opts="--config --port --verbose --quiet --timeout --no-cleanup --version --help -v -q -h"
     
-    # Get distributions from config file if it exists
-    config_file="/etc/mirror-test.yaml"
-    if [[ "$prev" == "--config" ]] && [[ -f "${COMP_WORDS[COMP_CWORD-1]}" ]]; then
-        config_file="${COMP_WORDS[COMP_CWORD-1]}"
+    # Get distributions from config file using Python (refreshed on every run)
+    distributions=""
+    config_file="$HOME/.config/mirror-test/mirror-test.yaml"
+    if [ -f "$config_file" ]; then
+        distributions=$(python3 -c "
+import yaml
+import sys
+try:
+    with open('$config_file', 'r') as f:
+        config = yaml.safe_load(f)
+    if 'distributions' in config:
+        print(' '.join(config['distributions'].keys()))
+    else:
+        # Fallback: look for top-level keys that aren't system sections
+        system_keys = {'variables', 'package-managers'}
+        dist_keys = [k for k in config.keys() if k not in system_keys]
+        print(' '.join(dist_keys))
+except:
+    pass
+" 2>/dev/null)
     fi
     
-    # Extract distributions from config file
-    if [[ -f "$config_file" ]]; then
-        # Get all keys except 'variables' and 'package-managers'
-        distributions=$(grep -E '^[a-zA-Z]' "$config_file" | \
-                       grep -v '^variables:' | \
-                       grep -v '^package-managers:' | \
-                       sed 's/:.*//' | \
-                       grep -v '^#' | \
-                       sort -u | \
-                       tr '\n' ' ')
-    else
-        # Default distributions if config not found
+    # Use default distributions if none found
+    if [ -z "$distributions" ]; then
         distributions="debian ubuntu rocky almalinux fedora centos opensuse alpine"
     fi
     

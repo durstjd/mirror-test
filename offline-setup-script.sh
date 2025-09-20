@@ -39,35 +39,137 @@ if [ ! -f "mirror-test.py" ]; then
     exit 1
 fi
 
-# Check for Python 3
-if ! command -v python3 &> /dev/null; then
-    print_error "Python 3 is not installed. Please install Python 3 first."
-    print_status "Install Python 3 using your system package manager:"
-    if command -v apt-get &> /dev/null; then
-        echo "  sudo apt-get install -y python3"
-    elif command -v yum &> /dev/null; then
-        echo "  sudo yum install -y python3"
-    elif command -v dnf &> /dev/null; then
-        echo "  sudo dnf install -y python3"
-    elif command -v apk &> /dev/null; then
-        echo "  sudo apk add --no-cache python3"
-    elif command -v pacman &> /dev/null; then
-        echo "  sudo pacman -S python"
-    elif command -v zypper &> /dev/null; then
-        echo "  sudo zypper install -y python3"
+# Function to check Python version
+check_python_version() {
+    local python_cmd="$1"
+    local version_output
+    local major_version
+    local minor_version
+    
+    if ! command -v "$python_cmd" &> /dev/null; then
+        return 1
     fi
+    
+    # Get Python version
+    version_output=$($python_cmd --version 2>&1)
+    if [[ $version_output =~ Python\ ([0-9]+)\.([0-9]+) ]]; then
+        major_version=${BASH_REMATCH[1]}
+        minor_version=${BASH_REMATCH[2]}
+        
+        # Check if version is 3.8 or greater
+        if [ "$major_version" -eq 3 ] && [ "$minor_version" -ge 8 ]; then
+            return 0
+        elif [ "$major_version" -gt 3 ]; then
+            return 0
+        else
+            return 1
+        fi
+    else
+        return 1
+    fi
+}
+
+# Check Python version
+print_status "Checking Python version..."
+
+# Check if user specified a Python command via environment variable
+if [ -n "$PYTHON_CMD" ]; then
+    if check_python_version "$PYTHON_CMD"; then
+        print_status "Using user-specified Python: $PYTHON_CMD ($($PYTHON_CMD --version))"
+    else
+        print_error "User-specified Python command '$PYTHON_CMD' is not Python 3.8 or greater"
+        print_warning "Current version: $($PYTHON_CMD --version 2>&1)"
+        exit 1
+    fi
+else
+    # Try different Python commands in order of preference
+    python_commands=("python3" "python" "python3.11" "python3.10" "python3.9" "python3.8")
+    PYTHON_CMD=""
+
+    for cmd in "${python_commands[@]}"; do
+        if check_python_version "$cmd"; then
+            PYTHON_CMD="$cmd"
+            print_status "Found Python $($cmd --version) at $cmd"
+            break
+        fi
+    done
+fi
+
+if [ -z "$PYTHON_CMD" ]; then
+    print_error "Python 3.8 or greater is required but not found"
+    print_warning "Current Python versions found:"
+    
+    # Check what Python versions are available
+    for cmd in python3 python python3.11 python3.10 python3.9 python3.8 python3.7 python3.6; do
+        if command -v "$cmd" &> /dev/null; then
+            version=$($cmd --version 2>&1)
+            print_warning "  $cmd: $version"
+        fi
+    done
+    
+    echo
+    print_status "To use a different version of Python:"
+    print_status "1. Install Python 3.8+ using your package manager:"
+    if command -v apt-get &> /dev/null; then
+        echo "    sudo apt-get install python3.8 python3.8-venv python3.8-dev"
+        echo "    # Or for newer versions:"
+        echo "    sudo apt-get install python3.11 python3.11-venv python3.11-dev"
+    elif command -v yum &> /dev/null; then
+        echo "    sudo yum install python3.8 python3.8-devel"
+        echo "    # Or for newer versions:"
+        echo "    sudo yum install python3.11 python3.11-devel"
+    elif command -v dnf &> /dev/null; then
+        echo "    sudo dnf install python3.8 python3.8-devel"
+        echo "    # Or for newer versions:"
+        echo "    sudo dnf install python3.11 python3.11-devel"
+    elif command -v apk &> /dev/null; then
+        echo "    sudo apk add python3.8 python3.8-dev"
+        echo "    # Or for newer versions:"
+        echo "    sudo apk add python3.11 python3.11-dev"
+    elif command -v pacman &> /dev/null; then
+        echo "    sudo pacman -S python python-pip"
+    elif command -v zypper &> /dev/null; then
+        echo "    sudo zypper install python38 python38-devel"
+        echo "    # Or for newer versions:"
+        echo "    sudo zypper install python311 python311-devel"
+    fi
+    
+    print_status "2. Use update-alternatives to manage multiple Python versions:"
+    echo "    sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1"
+    echo "    sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 2"
+    echo "    sudo update-alternatives --config python3"
+    
+    print_status "3. Or use pyenv to manage Python versions (no sudo required):"
+    echo "    curl https://pyenv.run | bash"
+    echo "    pyenv install 3.11.0"
+    echo "    pyenv global 3.11.0"
+    
+    print_status "4. Or specify a specific Python version when running this script:"
+    echo "    PYTHON_CMD=python3.11 ./offline-setup-script.sh"
+    
+    echo
+    print_error "Installation cannot proceed with Python 3.6 or older"
     exit 1
 fi
 
-# Check Python version
-PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-print_status "Found Python $PYTHON_VERSION"
+# Check if the found Python version is 3.6 or older (shouldn't happen due to check above, but extra safety)
+python_version=$($PYTHON_CMD --version 2>&1)
+if [[ $python_version =~ Python\ ([0-9]+)\.([0-9]+) ]]; then
+    major_version=${BASH_REMATCH[1]}
+    minor_version=${BASH_REMATCH[2]}
+    
+    if [ "$major_version" -eq 3 ] && [ "$minor_version" -le 6 ]; then
+        print_error "Python 3.6 or older detected: $python_version"
+        print_error "Python 3.8 or greater is required"
+        exit 1
+    fi
+fi
 
 # Install Python dependencies
 print_status "Installing Python dependencies..."
 
 # Check if PyYAML is already installed
-if python3 -c "import yaml" 2>/dev/null; then
+if $PYTHON_CMD -c "import yaml" 2>/dev/null; then
     print_status "PyYAML is already installed"
 else
     print_status "Installing PyYAML..."
@@ -75,7 +177,7 @@ else
     # Try to install from local package first
     if [ -f "python-deps/PyYAML-6.0.1.tar.gz" ]; then
         print_status "Installing PyYAML from local package..."
-        pip3 install --user python-deps/PyYAML-6.0.1.tar.gz
+        $PYTHON_CMD -m pip install --user python-deps/PyYAML-6.0.1.tar.gz
     else
         print_warning "Local PyYAML package not found, trying system package manager..."
         
@@ -101,14 +203,14 @@ else
             sudo zypper install -y python3-PyYAML
         else
             print_error "Could not install PyYAML. Please install it manually."
-            print_status "You can try: pip3 install --user PyYAML"
+            print_status "You can try: $PYTHON_CMD -m pip install --user PyYAML"
             exit 1
         fi
     fi
 fi
 
 # Verify PyYAML installation
-if python3 -c "import yaml" 2>/dev/null; then
+if $PYTHON_CMD -c "import yaml" 2>/dev/null; then
     print_status "PyYAML installed successfully"
 else
     print_error "PyYAML installation failed"
@@ -182,9 +284,12 @@ else
     export PATH="$BIN_DIR:$PATH"
 fi
 
-# Copy mirror-test.py to bin directory
+# Copy mirror-test.py to bin directory and update shebang
 print_status "Installing mirror-test to $BIN_DIR..."
 cp mirror-test.py "$BIN_DIR/mirror-test"
+# Update the shebang to use the detected Python command
+sed -i "1s|#!/usr/bin/env python3|#!/usr/bin/env $PYTHON_CMD|" "$BIN_DIR/mirror-test"
+print_status "Updated shebang to use $PYTHON_CMD"
 chmod +x "$BIN_DIR/mirror-test"
 
 # Create symlink for mt command
@@ -263,3 +368,4 @@ if [ "$BIN_DIR" = "$HOME/.local/bin" ]; then
 fi
 
 print_status "Offline installation completed successfully!"
+
