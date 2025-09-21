@@ -63,8 +63,11 @@ def load_server_config():
             # Legacy format - extract LDAPS config
             LDAPS_CONFIG = SERVER_CONFIG
         else:
-            # New format - extract LDAPS config from server config
-            LDAPS_CONFIG = SERVER_CONFIG
+            # New format - extract LDAPS config from ldaps section
+            if 'ldaps' in SERVER_CONFIG:
+                LDAPS_CONFIG = SERVER_CONFIG['ldaps']
+            else:
+                LDAPS_CONFIG = {}
         
         # Validate required LDAPS configuration
         required_keys = ['ldap_server', 'ldap_port', 'base_dn', 'user_dn_template', 'group_dn']

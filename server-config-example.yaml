@@ -78,7 +78,6 @@ audit_log:
 #   
 #   # SSL Security Settings
 #   require_ssl: false                     # Require SSL certificates to start server
-#   port: 8443                             # HTTPS port (443 for production)
 #   # NOTE: When SSL is enabled, HTTP is automatically disabled
 #   # The server will only listen on the HTTPS port specified here
 #   

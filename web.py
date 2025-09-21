@@ -63,42 +63,7 @@ class WebInterface:
         self.app = None
         self._setup_flask_app()
         
-        # Load server configuration
-        self._load_server_config()
-        
-        # Update security manager with our configuration
-        if hasattr(self, 'ldaps_config') and self.ldaps_config:
-            self.security_manager.ldaps_config = self.ldaps_config
-            self.security_manager.auth_enabled = self.auth_enabled
-            print(f"Updated SecurityManager with LDAPS config: {self.ldaps_config.get('ldap_server')}")
-        
-        # Update security manager with server configuration for audit logging
-        if hasattr(self, 'server_config') and self.server_config:
-            self.security_manager.server_config = self.server_config
-            # Re-initialize audit logging with the server config
-            if 'audit_log' in self.server_config:
-                self.security_manager.audit_log_config = self.server_config['audit_log']
-                self.security_manager._setup_audit_logging()
-                print("Audit logging initialized with server configuration")
-            else:
-                # Set up default audit logging if not configured
-                self.security_manager.audit_log_config = {
-                    'enabled': True,
-                    'log_dir': '~/mirror-test/logs',
-                    'max_size': 10485760,  # 10MB
-                    'backup_count': 5
-                }
-                self.security_manager._setup_audit_logging()
-                print("Audit logging initialized with default configuration")
-            
-            # Log web interface startup
-            self.security_manager.log_audit_event(
-                event_type='system',
-                user='system',
-                action='web_interface_started',
-                details={'version': '1.0.0', 'features': ['audit_logging', 'ldaps_auth', 'api_security']},
-                success=True
-            )
+        # Server configuration will be loaded in start_server() when needed
     
     def _setup_flask_app(self):
         """Setup Flask application with all configurations."""
@@ -156,8 +121,7 @@ class WebInterface:
              max_age=3600
         )
         
-        # Load server configuration
-        self._load_server_config()
+        # Server configuration will be loaded in start_server() when needed
         
         # Setup middleware
         self._setup_middleware()
@@ -299,6 +263,39 @@ class WebInterface:
             self.ldaps_config = None
             self.auth_enabled = False
             print("LDAPS authentication disabled: No server configuration loaded")
+    
+    def _update_security_manager(self, server_config):
+        """Update security manager with server configuration."""
+        # Extract LDAPS configuration
+        if server_config:
+            # Check if LDAPS config is at root level or under 'ldaps' section
+            if 'ldap_server' in server_config:
+                self.ldaps_config = server_config
+                self.auth_enabled = True
+                print(f"LDAPS authentication enabled (root level): {server_config.get('ldap_server')}")
+            elif 'ldaps' in server_config and 'ldap_server' in server_config['ldaps']:
+                self.ldaps_config = server_config['ldaps']
+                self.auth_enabled = True
+                print(f"LDAPS authentication enabled (ldaps section): {server_config['ldaps'].get('ldap_server')}")
+            else:
+                self.ldaps_config = None
+                self.auth_enabled = False
+                print("LDAPS authentication disabled: No LDAPS configuration found")
+        else:
+            self.ldaps_config = None
+            self.auth_enabled = False
+            print("LDAPS authentication disabled: No server configuration loaded")
+        
+        # Update security manager with our configuration
+        if hasattr(self, 'ldaps_config') and self.ldaps_config:
+            self.security_manager.ldaps_config = self.ldaps_config
+            self.security_manager.auth_enabled = self.auth_enabled
+            print(f"Updated SecurityManager with LDAPS config: {self.ldaps_config.get('ldap_server')}")
+        
+        # Update security manager with server configuration for audit logging
+        if hasattr(self, 'server_config') and self.server_config:
+            self.security_manager.server_config = self.server_config
+            print("Audit logging initialized with server configuration")
     
     def _setup_middleware(self):
         """Setup middleware for security."""
@@ -2623,6 +2620,8 @@ class WebInterface:
                     selectedDistributions.add(distName);
                     distItem.classList.add('selected', 'multi-selected');
                 }
+                // Update selectedDistribution to the first selected item for single-item operations
+                selectedDistribution = selectedDistributions.size > 0 ? Array.from(selectedDistributions)[0] : null;
                 updateSelectedCount();
             } else {
                 // Regular click: single selection
@@ -2999,7 +2998,12 @@ class WebInterface:
         }
         
         function loadBuildLogs(distName) {
-            selectDistribution(distName);
+            // Create a synthetic event to simulate a regular click (not Ctrl+click)
+            const syntheticEvent = {
+                ctrlKey: false,
+                metaKey: false
+            };
+            selectDistribution(syntheticEvent, distName);
             loadLogs();
         }
         
@@ -3857,6 +3861,10 @@ class WebInterface:
             print("Error: Flask is not available. Web interface cannot be launched.")
             return False
         
+        # Check if port was specified via command line
+        # Since --port has a default value, we need to check if it was actually provided
+        import sys
+        self._port_specified = '--port' in sys.argv
         port = getattr(args, 'port', 8080)
         debug = getattr(args, 'debug', False)
         ssl_cert = getattr(args, 'ssl_cert', None)
@@ -3864,25 +3872,47 @@ class WebInterface:
         ssl_context = getattr(args, 'ssl_context', None)
         open_browser = getattr(args, 'open_browser', False)
         
-        # Check server configuration for SSL settings
-        if not ssl_cert and not ssl_key:
-            # Try to load server config for SSL settings
-            import yaml
-            import os
-            config_file = os.path.expanduser("~/.config/mirror-test/server-config.yaml")
-            if os.path.exists(config_file):
-                try:
-                    with open(config_file, 'r') as f:
-                        server_config = yaml.safe_load(f)
+        # Load server configuration for port, SSL, and security settings
+        import yaml
+        import os
+        config_file = os.path.expanduser("~/.config/mirror-test/server-config.yaml")
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, 'r') as f:
+                    server_config = yaml.safe_load(f)
+                
+                # Store server config for security manager
+                self.server_config = server_config
+                
+                # Use server port if no port was specified via command line
+                server_port = server_config.get('server', {}).get('port')
+                if server_port and not self._port_specified:
+                    port = server_port
+                    print(f"Using server port from configuration: {port}")
+                else:
+                    print(f"Port specified via command line: {self._port_specified}, using port: {port}")
+                
+                # Check SSL configuration (only if not already set via command line)
+                if not ssl_cert and not ssl_key:
                     ssl_config = server_config.get('ssl', {})
                     if ssl_config.get('enabled', False):
                         ssl_cert = ssl_config.get('cert_file')
                         ssl_key = ssl_config.get('key_file')
-                        if ssl_config.get('port'):
-                            port = ssl_config.get('port')
                         print(f"SSL enabled from server configuration: {ssl_cert}")
-                except Exception as e:
-                    print(f"Error loading server config for SSL: {e}")
+                
+                # Update security manager with server configuration
+                self._update_security_manager(server_config)
+                
+            except Exception as e:
+                print(f"Error loading server config: {e}")
+        else:
+            print(f"Server configuration not found: {config_file}")
+            self.server_config = None
+        
+        # If no server config was loaded, try to load SSL config from command line args
+        if not ssl_cert and not ssl_key:
+            # This block is now empty since we moved the SSL logic above
+            pass
         
         # Handle SSL configuration
         if ssl_cert and ssl_key:
