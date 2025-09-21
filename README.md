@@ -1,44 +1,43 @@
-# Mirror Test User Manual
-**Version 2.1.0** | **September 2025**
+# Mirror Test
+**Version 2.2.0** | **September 2025**
 
 ---
 
 ## Table of Contents
 
 1. [Introduction](#1-introduction)
-2. [Installation](#2-installation)
-3. [Configuration](#3-configuration)
-4. [Usage](#4-usage)
-5. [Commands Reference](#5-commands-reference)
-6. [Web Interface](#6-web-interface)
-7. [CLI Interface](#7-cli-interface)
-8. [Release Packages](#8-release-packages)
-9. [Troubleshooting](#9-troubleshooting)
-10. [Examples](#10-examples)
-11. [Appendix](#11-appendix)
+2. [Requirements](#2-requirements)
+3. [Installation](#3-installation)
+4. [Configuration](#4-configuration)
+5. [Usage](#5-usage)
+6. [Commands Reference](#6-commands-reference)
+7. [Troubleshooting](#7-troubleshooting)
+8. [Examples](#8-examples)
+9. [Appendix](#9-appendix)
 
 ---
 
 ## 1. Introduction
 
-Mirror Test is a comprehensive tool for validating local Linux repository mirrors. It uses container build processes to verify that packages can be accessed and installed from configured mirror servers.
+Mirror Test is a comprehensive tool for validating local Linux repository mirrors. This modular version provides a clean, maintainable architecture with separate modules for core functionality, CLI interface, and web interface.
 
 ### Key Features
+- **Modular Architecture** - Clean separation of concerns with independent modules
 - **Multi-distribution support** - Test Debian, Ubuntu, RHEL, SUSE, Alpine, and more
 - **Variable substitution** - Define mirror URLs once, use everywhere
 - **Customizable tests** - Configure package manager commands and test packages
-- **Modern web interface** - Beautiful, responsive web GUI with real-time updates
+- **Modern web interface** - Responsive web GUI with real-time updates
 - **Simple CLI interface** - Clean command-line interface for automation
-- **Build status tracking** - Visual panels showing successful and failed builds with timestamps
-- **Clickable build items** - Click any build to instantly load its logs
+- **Build status tracking** - Visual panels showing successful and failed builds
 - **Automated cleanup** - No residual images left after testing
 - **Comprehensive logging** - Detailed logs for debugging
-- **Offline installation** - Complete packages for air-gapped systems
+- **Optional security features** - LDAPS authentication, API keys, audit logging
+- **Graceful degradation** - Works with or without optional dependencies
 
 ### System Requirements
-- Linux operating system (Windows/macOS supported for development)
-- Podman installed
-- Python 3.6 or higher
+- Linux operating system
+- Podman
+- Python 3.8 or higher
 - PyYAML library
 - Root access (/etc/sub{uid,gid} configuration)
 - Minimum 2GB RAM
@@ -47,92 +46,101 @@ Mirror Test is a comprehensive tool for validating local Linux repository mirror
 ### Project Structure
 ```
 mirror-test/
-├── mirror-test.py              # Main application
-├── setup-script.sh             # Online installation script
-├── offline-setup-script.sh     # Offline installation script
-├── prepare-release.sh          # Release preparation script
-├── uninstall.sh                # Uninstall script
-├── bash-autocomplete.sh        # Bash completion
-├── full-config-example.yaml    # Example configuration
-├── README.md                  # This file
-└── UNINSTALL.md              # Uninstall documentation
+├── __init__.py                    # Package initialization
+├── main.py                       # Main entry point
+├── config.py                     # Configuration management
+├── core.py                       # Core testing functionality
+├── cli.py                        # Command-line interface
+├── web.py                        # Web interface
+├── security.py                   # Security and authentication
+├── setup.py                      # Package setup
+├── requirements.txt              # Python dependencies
+├── full-config-example.yaml      # Complete configuration example
+├── server-config-example.yaml    # Server configuration example
+├── bash-autocomplete.sh          # Bash completion script
+├── build_linux.sh                # Linux build script
+├── SSL-SETUP-GUIDE.md           # SSL setup instructions
+└── README.md                     # This file
 ```
 
 ---
 
-## 2. Installation
+## 2. Requirements
 
-### Online Installation (Recommended)
+### Core Dependencies (Required)
+- **Python 3.8+** - Core runtime
+- **PyYAML** - Configuration file parsing
+- **Podman** - Container runtime for testing
 
-For systems with internet access:
+### Web Interface Dependencies (Optional)
+- **Flask** - Web framework
+- **Flask-Limiter** - Rate limiting
+- **Flask-WTF** - Form handling
+- **Flask-CORS** - Cross-origin resource sharing
 
+### Security Dependencies (Optional)
+- **python-ldap** - LDAP authentication support
+
+### Installation Methods
 ```bash
-# Download and run the setup script
-wget https://example.com/setup-mirror-test.sh
-chmod +x setup-mirror-test.sh
-sudo ./setup-mirror-test.sh
+# Core installation only
+pip install -r requirements.txt
+
+# With all optional dependencies
+pip install -e .[all]
+
+# Development installation
+pip install -e .
 ```
 
-### Offline Installation
+---
 
-For air-gapped systems or systems without internet access:
+## 3. Installation
 
-1. **Prepare offline package on a system with internet:**
-```bash
-# Download the offline preparation script
-wget https://example.com/prepare-offline-deps.sh
-chmod +x prepare-offline-deps.sh
-./prepare-offline-deps.sh
-
-# Create offline package
-tar -czf mirror-test-offline-2.1.0.tar.gz mirror-test-offline-deps/
+### From Release
+```
+mirror-test --install
 ```
 
-2. **Transfer and install on target system:**
-```bash
-# Extract the offline package
-tar -xzf mirror-test-offline-2.1.0.tar.gz
-cd mirror-test-offline-deps
-
-# Install using offline setup script
-chmod +x install-offline.sh
-./install-offline.sh
+### From Git
+```
+git clone https://github.com/durstjd/mirror-test.git
+cd mirror-test
+chmod +X build_linux.sh
+./build_linux.sh
+./dist/mirror-test --install
 ```
 
-### Manual Installation
+### From Source
 
-1. **Install dependencies:**
 ```bash
-# Debian/Ubuntu
-sudo apt-get install python3 python3-yaml podman bash-completion
+# Clone the repository
+git clone <repository-url>
+cd mirror-test
 
-# RHEL/Rocky/AlmaLinux
-sudo dnf install python3 python3-pyyaml podman bash-completion
+# Install in development mode
+pip install -e .
 
-# openSUSE
-sudo zypper install python3 python3-PyYAML podman bash-completion
+# Or install with all optional dependencies
+pip install -e .[all]
 ```
 
-2. **Copy files:**
+### System Installation
+
 ```bash
-sudo cp mirror-test.py /usr/local/bin/mirror-test
-sudo chmod +x /usr/local/bin/mirror-test
+# Install system-wide
+sudo pip install -e .
+
+# Install for current user only
+pip install --user -e .
+```
+
+### Enable Bash Completion
+
+```bash
+# Copy completion script
 sudo cp bash-autocomplete.sh /etc/bash_completion.d/mirror-test
-```
 
-3. **Create directories:**
-```bash
-sudo mkdir -p /etc /var/log/mirror-test /var/lib/mirror-test/builds
-```
-
-4. **Create configuration:**
-```bash
-sudo nano /etc/mirror-test.yaml
-```
-
-### Enable Autocomplete
-
-```bash
 # Reload bash completion
 source /etc/bash_completion.d/mirror-test
 
@@ -140,37 +148,20 @@ source /etc/bash_completion.d/mirror-test
 mirror-test <TAB><TAB>
 ```
 
-### Uninstallation
+### SSL Certificate Setup (Optional)
 
-To remove Mirror Test from your system, use the provided uninstall scripts:
-
-```bash
-# Linux/Unix - Remove all installations
-./uninstall.sh
-
-# Linux/Unix - Remove only user installation
-./uninstall.sh --user --yes
-
-# Linux/Unix
-./uninstall.sh
-```
-
-**Available Options:**
-- `--system` - Remove only system-wide installation
-- `--user` - Remove only user-level installation  
-- `--cleanup` - Also clean up containers and images
-- `--yes` - Skip confirmation prompts
-- `--help` - Show detailed help
-
-For more information, see [UNINSTALL.md](UNINSTALL.md).
+For LDAPS authentication and HTTPS web interface, see the [SSL Setup Guide](SSL-SETUP-GUIDE.md) for detailed instructions on:
+- Adding LDAP server certificates to system trust store
+- Configuring self-signed certificates for web interface
+- Troubleshooting SSL certificate issues
 
 ---
 
-## 3. Configuration
+## 4. Configuration
 
 ### Configuration File Structure
 
-The configuration file `/etc/mirror-test.yaml` has three main sections:
+The configuration file `~/.config/mirror-test/mirror-test.yaml` has three main sections:
 
 #### Variables Section
 Define reusable variables for mirror URLs and settings:
@@ -207,15 +198,14 @@ package-managers:
 Define each distribution to test:
 
 ```yaml
-debian:
-  base-image: debian:12
-  package-manager: apt
-  sources:
-    - "deb ${MIRROR_BASE}/debian bookworm main contrib non-free"
-  # Optional: Override test commands for this distribution
-  test-commands:
-    - "apt-get install -y build-essential"
-    - "gcc --version"
+distributions:
+  debian-12:
+    base-image: "debian:12"
+    package-manager: "apt"
+    sources:
+      - "deb ${MIRROR_BASE}/debian bookworm main"
+      - "deb ${MIRROR_BASE}/debian bookworm-updates main"
+      - "deb ${MIRROR_BASE}/debian-security bookworm-security main"
 ```
 
 ### Using Variables
@@ -245,228 +235,77 @@ sources:
   - |
     [baseos]
     name=BaseOS
-    baseurl=${MIRROR_BASE}/rocky/$releasever/BaseOS/$basearch/os/
+    baseurl=${MIRROR_BASE}/rhel/8/x86_64/baseos
     enabled=1
-    gpgcheck=0
-    
-    [appstream]
-    name=AppStream
-    baseurl=${MIRROR_BASE}/rocky/$releasever/AppStream/$basearch/os/
-    enabled=1
-    gpgcheck=0
+    gpgcheck=${GPG_CHECK}
 ```
 
-#### APK (Alpine)
+#### Zypper (SUSE)
 ```yaml
 sources:
-  - "${MIRROR_BASE}/alpine/v3.19/main"
-  - "${MIRROR_BASE}/alpine/v3.19/community"
+  - |
+    [main]
+    name=Main Repository
+    baseurl=${MIRROR_BASE}/sles/15/x86_64/
+    enabled=1
+    gpgcheck=${GPG_CHECK}
+```
+
+### Server Configuration (Optional)
+
+For web interface with security features, create `~/.config/mirror-test/server-config.yaml`:
+
+```yaml
+# Web server settings
+host: "0.0.0.0"
+port: 5000
+debug: false
+
+# SSL settings (optional)
+ssl_cert: "/path/to/cert.pem"
+ssl_key: "/path/to/key.pem"
+
+# Authentication settings (optional)
+auth:
+  enabled: false
+  ldap_server: "ldap://ldap.company.com"
+  ldap_base_dn: "dc=company,dc=com"
+  ldap_user_dn: "cn=admin,dc=company,dc=com"
+  ldap_password: "password"
+
+# API settings
+api:
+  rate_limit: "100 per minute"
+  api_keys:
+    - "your-api-key-here"
+
+# Security settings
+security:
+  audit_log: true
+  ip_whitelist: []
+  cors_origins: ["*"]
 ```
 
 ---
 
-## 4. Usage
+## 5. Usage
 
 ### Basic Commands
 
 ```bash
-# Test all distributions
+# Test all configured distributions
 mirror-test
 
 # Test specific distributions
-mirror-test debian ubuntu rocky
+mirror-test debian-12 ubuntu-22
 
 # Launch web interface
 mirror-test gui
 
-# Launch terminal interface
+# Launch interactive CLI
 mirror-test cli
 
-# View logs
-mirror-test logs debian
-
-# Clean up images
-mirror-test cleanup
-```
-
-### Command-Line Options
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--config FILE` | Use alternate config | `mirror-test --config /path/to/config.yaml` |
-| `--port PORT` | Web interface port | `mirror-test gui --port 8081` |
-| `--verbose` | Detailed output | `mirror-test --verbose debian` |
-| `--quiet` | Suppress output | `mirror-test --quiet all` |
-| `--timeout SEC` | Build timeout | `mirror-test --timeout 1200` |
-| `--no-cleanup` | Keep test images | `mirror-test --no-cleanup debian` |
-| `--version` | Show version | `mirror-test --version` |
-| `--help` | Show help | `mirror-test --help` |
-
-### Exit Codes
-
-- **0** - All tests passed
-- **1** - One or more tests failed
-- **2** - Configuration error
-- **3** - System requirements not met
-
----
-
-## 5. Commands Reference
-
-### Core Testing Commands
-
-#### `mirror-test [DISTRIBUTIONS...]`
-Test specified distributions or all if none specified.
-
-```bash
-mirror-test                  # Test all
-mirror-test debian           # Test Debian only
-mirror-test debian ubuntu    # Test multiple
-```
-
-#### `mirror-test cleanup`
-Remove all test container images to free disk space.
-
-```bash
-mirror-test cleanup
-# Output: Cleaned up 5 mirror-test images
-```
-
-### Information Commands
-
-#### `mirror-test list`
-List all configured distributions.
-
-```bash
-mirror-test list
-# Output:
-# debian-12            debian:12              [apt]
-# ubuntu-22-04         ubuntu:22.04           [apt]
-# rocky-9              rockylinux:9           [dnf]
-```
-
-#### `mirror-test variables`
-Show configured variables and their expanded values.
-
-```bash
-mirror-test variables
-# Output:
-# MIRROR_HOST         = 10.10.0.15
-# MIRROR_BASE         = http://10.10.0.15
-```
-
-#### `mirror-test validate`
-Validate configuration file syntax.
-
-```bash
-mirror-test validate
-# Output: ✓ Configuration is valid
-```
-
-### Log Commands
-
-#### `mirror-test logs DISTRIBUTION`
-View the latest test logs for a distribution.
-
-```bash
-mirror-test logs debian
-# Shows full build output and test results
-```
-
-#### `mirror-test dockerfile DISTRIBUTION`
-Display the generated Dockerfile for a distribution.
-
-```bash
-mirror-test dockerfile rocky
-# Shows the complete Dockerfile that would be built
-```
-
----
-
-## 6. Web Interface
-
-### Starting the Web Interface
-
-```bash
-# Start on default port 8080
-mirror-test gui
-
-# Start on custom port
-mirror-test gui --port 8081
-
-# Start as a service
-systemctl start mirror-test-web
-```
-
-### Web Interface Features
-
-- **Distribution Selection** - Multi-select dropdown with all configured distributions
-- **Real-time Testing** - Watch build progress live with live updates
-- **Build Status Panels** - Visual panels showing successful and failed builds with timestamps
-- **Clickable Build Items** - Click any build item to instantly load its logs
-- **Log Viewer** - Separate tabs for output, errors, Dockerfile, and full logs
-- **Statistics Dashboard** - Shows total configured, recently tested, successful, and failed builds
-- **Auto-refresh** - Statistics and build status update automatically
-- **Responsive Design** - Works on desktop and mobile devices
-- **Keyboard Shortcuts**:
-  - `Ctrl+R` - Run test
-  - `Ctrl+L` - Load logs
-  - `Ctrl+D` - View Dockerfile
-
-### Accessing the Interface
-
-Open your browser to: `http://localhost:8080`
-
-The interface provides a modern, intuitive way to manage and monitor your repository testing with real-time updates and comprehensive build tracking.
-
----
-
-## 7. CLI Interface
-
-### Starting the CLI Interface
-
-```bash
-mirror-test cli
-```
-
-### CLI Interface Features
-
-- **Simple and Clean** - Easy-to-use command-line interface
-- **Interactive Menus** - Step-by-step guidance for testing
-- **Real-time Progress** - See test progress as it happens
-- **Comprehensive Logging** - Detailed output for debugging
-- **Automated Workflows** - Perfect for scripting and automation
-
-### CLI Commands
-
-The CLI interface provides an interactive menu system that guides you through:
-
-1. **Select Distributions** - Choose which distributions to test
-2. **Run Tests** - Execute the selected tests
-3. **View Results** - See detailed results and logs
-4. **Cleanup** - Remove test images when done
-
-### Command Line Usage
-
-For automation and scripting, you can use Mirror Test directly from the command line:
-
-```bash
-# Test all distributions
-mirror-test
-
-# Test specific distributions
-mirror-test debian ubuntu rocky
-
-# View logs for a distribution
-mirror-test logs debian
-
-# Show generated Dockerfile
-mirror-test dockerfile debian
-
-# Clean up test images
-mirror-test cleanup
-
-# List all configured distributions
+# List configured distributions
 mirror-test list
 
 # Show configuration variables
@@ -474,295 +313,437 @@ mirror-test variables
 
 # Validate configuration
 mirror-test validate
+
+# Clean up Podman images
+mirror-test cleanup
+```
+
+### Web Interface
+
+```bash
+# Start web server
+mirror-test gui
+
+# Start with custom port
+mirror-test gui --port 9000
+
+# Start with SSL
+mirror-test gui --ssl-cert cert.pem --ssl-key key.pem
+
+# Start with auto-open browser
+mirror-test gui --open-browser
+```
+
+### Interactive CLI Mode
+
+```bash
+# Launch interactive CLI
+mirror-test cli
+
+# Available commands in CLI mode:
+# - test <distribution> - Test specific distribution
+# - test-all - Test all distributions
+# - list - List configured distributions
+# - logs <distribution> - View logs
+# - dockerfile <distribution> - View generated containerfile
+# - cleanup - Clean up images
+# - exit - Exit CLI mode
 ```
 
 ---
 
-## 8. Release Packages
+## 6. Commands Reference
 
-Mirror Test provides both online and offline installation packages for different deployment scenarios.
+### Core Commands
 
-### Online Installation Package
+| Command | Description | Options |
+|---------|-------------|---------|
+| `mirror-test` | Test all distributions | `--verbose`, `--config` |
+| `mirror-test <dist>` | Test specific distribution | `--verbose`, `--config` |
+| `mirror-test gui` | Launch web interface | `--port`, `--host`, `--ssl-cert`, `--ssl-key` |
+| `mirror-test cli` | Launch interactive CLI | `--config` |
+| `mirror-test list` | List configured distributions | `--config` |
+| `mirror-test variables` | Show configuration variables | `--config` |
+| `mirror-test validate` | Validate configuration | `--config` |
+| `mirror-test cleanup` | Clean up Podman images | `--all` |
+| `mirror-test logs <dist>` | View logs for distribution | `--config` |
+| `mirror-test dockerfile <dist>` | View generated Containerfile | `--config` |
+| `mirror-test refresh` | Refresh bash completion | |
 
-**File:** `mirror-test-online-{VERSION}.tar.gz`
+### Web Interface Commands
 
-**Contents:**
-- Core application files
-- Setup scripts for online installation
-- Configuration examples
-- Documentation
+| Command | Description |
+|---------|-------------|
+| `mirror-test gui` | Start web interface |
+| `mirror-test gui --port 9000` | Start on custom port |
+| `mirror-test gui --ssl-cert cert.pem --ssl-key key.pem` | Start with SSL |
+| `mirror-test gui --open-browser` | Start and open browser |
 
-**Installation:**
-```bash
-tar -xzf mirror-test-online-2.1.0.tar.gz
-cd mirror-test-2.1.0
-./setup-script.sh
-```
+### Configuration Options
 
-### Offline Installation Package
-
-**File:** `mirror-test-offline-{VERSION}.tar.gz`
-
-**Contents:**
-- All online package contents
-- Pre-downloaded Python dependencies (PyYAML)
-- Pre-downloaded system dependencies (Podman binaries)
-- Offline installation scripts
-- System package installation guides
-
-**Installation:**
-```bash
-tar -xzf mirror-test-offline-2.1.0.tar.gz
-cd mirror-test-offline-deps
-./install-offline.sh
-```
-
-### Creating Release Packages
-
-Use the provided scripts to create release packages:
-
-```bash
-# Create online package
-./prepare-release.sh
-
-# Create offline dependencies (run on system with internet)
-./prepare-offline-deps.sh
-
-# Create offline package
-tar -czf mirror-test-offline-2.1.0.tar.gz mirror-test-offline-deps/
-```
-
-### Package Features
-
-- **Multi-platform Support** - Works on Linux (various distributions) and macOS
-- **Architecture Detection** - Automatically detects and downloads correct binaries
-- **Dependency Management** - Handles all required dependencies
-- **Installation Verification** - Tests installation after setup
-- **Comprehensive Documentation** - Includes setup guides and troubleshooting
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--config <file>` | Use custom config file | `~/.config/mirror-test/mirror-test.yaml` |
+| `--verbose` | Enable verbose output | `False` |
+| `--port <port>` | Web interface port | `5000` |
+| `--host <host>` | Web interface host | `0.0.0.0` |
+| `--ssl-cert <file>` | SSL certificate file | `None` |
+| `--ssl-key <file>` | SSL private key file | `None` |
+| `--open-browser` | Open browser automatically | `False` |
 
 ---
 
-## 9. Troubleshooting
+## 7. Troubleshooting
 
 ### Common Issues
 
-#### Permission Denied
-**Problem:** Cannot access podman socket
-**Solution:** Run as root or add user to podman group
+#### Container Runtime Issues
 ```bash
-sudo usermod -aG podman $USER
+# Check if Podman is running
+podman info
+
+# Test container creation
+podman run --rm quay.io/podman/hello
+
+# Check Podman version
+podman version
+
+# Check if user has proper subuid/subgid configuration
+cat /etc/subuid
+cat /etc/subgid
 ```
 
-#### Build Timeout
-**Problem:** Tests timing out
-**Solution:** Increase timeout value
+#### Permission Issues
 ```bash
-mirror-test --timeout 1200 debian
+# Check if user has proper subuid/subgid configuration
+cat /etc/subuid | grep $USER
+cat /etc/subgid | grep $USER
+
+# If not configured, add user to subuid/subgid (requires root)
+sudo usermod --add-subuids 100000-165535 $USER
+sudo usermod --add-subgids 100000-165535 $USER
+
+# Log out and back in, then test
+podman run --rm quay.io/podman/hello
 ```
 
-#### Repository Connection Failed
-**Problem:** Cannot connect to mirror
-**Symptoms in logs:**
-```
-Err:1 http://10.10.0.15/debian bookworm InRelease
-  Could not connect to 10.10.0.15:80
-```
-**Solution:** 
-- Check mirror server is running
-- Verify network connectivity
-- Check firewall rules
-
-#### No Space Left
-**Problem:** Disk full during builds
-**Solution:** Clean up old images
+#### Configuration Issues
 ```bash
-mirror-test cleanup
-podman system prune -a
+# Validate configuration
+mirror-test validate
+
+# Check configuration syntax
+python -c "import yaml; yaml.safe_load(open('~/.config/mirror-test/mirror-test.yaml'))"
+
+# Test specific distribution
+mirror-test <distribution> --verbose
+```
+
+#### Web Interface Issues
+```bash
+# Check if port is available
+netstat -tlnp | grep :5000
+
+# Test with different port
+mirror-test gui --port 9000
+
+# Check Flask dependencies
+python -c "import flask; print('Flask available')"
+```
+
+#### SSL Certificate Issues
+```bash
+# Check certificate validity
+openssl x509 -in cert.pem -text -noout
+
+# Test SSL connection
+openssl s_client -connect localhost:5000 -servername localhost
 ```
 
 ### Debug Mode
 
 Enable verbose output for detailed debugging:
+
 ```bash
-mirror-test --verbose debian 2>&1 | tee debug.log
+# Test with verbose output
+mirror-test --verbose
+
+# Web interface with debug mode
+FLASK_DEBUG=1 mirror-test gui
 ```
 
 ### Log Files
 
-Check logs for detailed error information:
-```bash
-# Latest log for a distribution
-cat /var/log/mirror-test/debian_latest.log
-
-# All logs
-ls -la /var/log/mirror-test/
-```
+Logs are stored in:
+- **CLI output**: Console output
+- **Web interface**: Console output or log files
+- **Container logs**: Available through Podman (`podman logs <container_id>`)
 
 ---
 
-## 10. Examples
+## 8. Examples
 
-### Example 1: Basic Mirror Testing
-
-```yaml
-# /etc/mirror-test.yaml
-variables:
-  MIRROR_HOST: "192.168.1.100"
-  MIRROR_BASE: "http://${MIRROR_HOST}"
-
-debian:
-  base-image: debian:12
-  package-manager: apt
-  sources:
-    - "deb ${MIRROR_BASE}/debian bookworm main"
-```
-
-```bash
-# Test the configuration
-mirror-test debian
-```
-
-### Example 2: Multiple Mirrors with Failover
+### Basic Configuration Example
 
 ```yaml
+# ~/.config/mirror-test/mirror-test.yaml
 variables:
-  PRIMARY: "10.10.0.15"
-  BACKUP: "10.10.0.16"
+  MIRROR_HOST: "mirror.company.com"
+  MIRROR_PROTO: "https"
+  MIRROR_BASE: "${MIRROR_PROTO}://${MIRROR_HOST}"
+  GPG_CHECK: "1"
+
+package-managers:
+  apt:
+    update-command: "apt-get update"
+    test-commands:
+      - "apt-get install -y --no-install-recommends curl wget"
+      - "apt-cache stats"
+      - "echo 'APT repository test successful'"
   
-debian:
-  sources:
-    - "deb http://${PRIMARY}/debian bookworm main"
-    - "deb http://${BACKUP}/debian bookworm main"
+  dnf:
+    update-command: "dnf makecache"
+    test-commands:
+      - "dnf install -y dnf-utils"
+      - "dnf repolist --all"
+      - "echo 'DNF repository test successful'"
+
+distributions:
+  debian-12:
+    base-image: "debian:12"
+    package-manager: "apt"
+    sources:
+      - "deb ${MIRROR_BASE}/debian bookworm main contrib non-free"
+      - "deb ${MIRROR_BASE}/debian bookworm-updates main contrib non-free"
+      - "deb ${MIRROR_BASE}/debian-security bookworm-security main contrib non-free"
+  
+  ubuntu-22:
+    base-image: "ubuntu:22.04"
+    package-manager: "apt"
+    sources:
+      - "deb ${MIRROR_BASE}/ubuntu jammy main restricted universe multiverse"
+      - "deb ${MIRROR_BASE}/ubuntu jammy-updates main restricted universe multiverse"
+      - "deb ${MIRROR_BASE}/ubuntu jammy-security main restricted universe multiverse"
+  
+  rocky-8:
+    base-image: "rockylinux:8"
+    package-manager: "dnf"
+    sources:
+      - |
+        [baseos]
+        name=BaseOS
+        baseurl=${MIRROR_BASE}/rocky/8/BaseOS/x86_64/os/
+        enabled=1
+        gpgcheck=${GPG_CHECK}
 ```
 
-### Example 3: Custom Test Commands
+### Advanced Configuration Example
 
 ```yaml
-rocky-web-stack:
-  base-image: rockylinux:9
-  package-manager: dnf
-  sources:
-    - |
-      [baseos]
-      baseurl=${MIRROR_BASE}/rocky/9/BaseOS/x86_64/os/
-      enabled=1
-  test-commands:
-    - "dnf install -y httpd mariadb-server php"
-    - "httpd -v"
-    - "mysql --version"
-    - "php --version"
-    - "echo 'LAMP stack validated'"
+# ~/.config/mirror-test/mirror-test.yaml
+variables:
+  MIRROR_HOST: "mirror.company.com"
+  MIRROR_PROTO: "https"
+  MIRROR_BASE: "${MIRROR_PROTO}://${MIRROR_HOST}"
+  GPG_CHECK: "1"
+  ARCH: "x86_64"
+
+package-managers:
+  apt:
+    update-command: "apt-get update"
+    test-commands:
+      - "apt-get install -y --no-install-recommends curl wget build-essential"
+      - "apt-cache stats"
+      - "gcc --version"
+      - "echo 'APT repository test successful'"
+  
+  dnf:
+    update-command: "dnf makecache"
+    test-commands:
+      - "dnf install -y dnf-utils gcc make"
+      - "dnf repolist --all"
+      - "gcc --version"
+      - "echo 'DNF repository test successful'"
+
+distributions:
+  debian-12:
+    base-image: "debian:12"
+    package-manager: "apt"
+    sources:
+      - "deb ${MIRROR_BASE}/debian bookworm main contrib non-free"
+      - "deb ${MIRROR_BASE}/debian bookworm-updates main contrib non-free"
+      - "deb ${MIRROR_BASE}/debian-security bookworm-security main contrib non-free"
+    # Override test commands for this distribution
+    test-commands:
+      - "apt-get install -y build-essential"
+      - "gcc --version"
+      - "make --version"
+      - "echo 'Debian 12 build tools test successful'"
+  
+  ubuntu-22:
+    base-image: "ubuntu:22.04"
+    package-manager: "apt"
+    sources:
+      - "deb ${MIRROR_BASE}/ubuntu jammy main restricted universe multiverse"
+      - "deb ${MIRROR_BASE}/ubuntu jammy-updates main restricted universe multiverse"
+      - "deb ${MIRROR_BASE}/ubuntu jammy-security main restricted universe multiverse"
+  
+  rocky-8:
+    base-image: "rockylinux:8"
+    package-manager: "dnf"
+    sources:
+      - |
+        [baseos]
+        name=BaseOS
+        baseurl=${MIRROR_BASE}/rocky/8/BaseOS/${ARCH}/os/
+        enabled=1
+        gpgcheck=${GPG_CHECK}
+        
+        [appstream]
+        name=AppStream
+        baseurl=${MIRROR_BASE}/rocky/8/AppStream/${ARCH}/os/
+        enabled=1
+        gpgcheck=${GPG_CHECK}
 ```
 
-### Example 4: Minimal Quick Test
+### Web Interface with Security
 
 ```yaml
-alpine-minimal:
-  base-image: alpine:3.19
-  package-manager: apk
-  sources:
-    - "${MIRROR_BASE}/alpine/v3.19/main"
-  test-commands:
-    - "apk add --no-cache curl"
-    - "echo 'Quick test passed'"
+# ~/.config/mirror-test/server-config.yaml
+host: "0.0.0.0"
+port: 5000
+debug: false
+
+# SSL settings
+ssl_cert: "/etc/ssl/certs/mirror-test.crt"
+ssl_key: "/etc/ssl/private/mirror-test.key"
+
+# Authentication settings
+auth:
+  enabled: true
+  ldap_server: "ldaps://ldap.company.com:636"
+  ldap_base_dn: "dc=company,dc=com"
+  ldap_user_dn: "cn=admin,dc=company,dc=com"
+  ldap_password: "secure-password"
+
+# API settings
+api:
+  rate_limit: "100 per minute"
+  api_keys:
+    - "your-secure-api-key-here"
+
+# Security settings
+security:
+  audit_log: true
+  ip_whitelist: ["10.0.0.0/8", "192.168.0.0/16"]
+  cors_origins: ["https://mirror.company.com"]
 ```
 
-### Example 5: Environment-Specific Configuration
+---
 
+## 9. Appendix
+
+### Module Architecture
+
+#### Core Modules
+- **`config.py`**: Configuration management and validation
+- **`core.py`**: Core mirror testing functionality using containers
+- **`security.py`**: Security features including LDAP authentication
+
+#### Interface Modules
+- **`cli.py`**: Command-line interface and interactive mode
+- **`web.py`**: Flask web interface and API endpoints
+- **`main.py`**: Main entry point and argument parsing
+
+### Key Classes
+
+#### ConfigManager
+Handles YAML configuration loading and validation:
+```python
+from config import ConfigManager
+
+config = ConfigManager('~/.config/mirror-test/mirror-test.yaml')
+distributions = config.get_distributions()
+variables = config.get_variables()
+```
+
+#### MirrorTester
+Core testing functionality using Podman containers:
+```python
+from core import MirrorTester
+
+tester = MirrorTester(config)
+result = tester.test_distribution('debian-12')
+```
+
+#### WebInterface
+Flask web application:
+```python
+from web import WebInterface
+
+app = WebInterface(config)
+app.run(host='0.0.0.0', port=5000)
+```
+
+### Building Executables
+
+#### Quick Build
 ```bash
-# Development environment
-MIRROR_HOST=dev-mirror.local mirror-test
-
-# Production environment  
-MIRROR_HOST=prod-mirror.company.com mirror-test
+# Linux build
+./build_linux.sh
 ```
 
----
-
-## 11. Appendix
-
-### A. Supported Package Managers
-
-| Package Manager | Distributions | Update Command |
-|----------------|---------------|----------------|
-| apt | Debian, Ubuntu | apt-get update |
-| yum | RHEL 7, CentOS 7 | yum makecache |
-| dnf | RHEL 8+, Fedora, Rocky | dnf makecache |
-| zypper | openSUSE, SLES | zypper refresh |
-| apk | Alpine Linux | apk update |
-| tdnf | VMware Photon | tdnf makecache |
-| pacman | Arch Linux | pacman -Sy |
-
-### B. Container Base Images
-
-| Distribution | Recommended Image | Alternative Images |
-|-------------|-------------------|-------------------|
-| Debian 12 | debian:12 | debian:bookworm |
-| Debian 11 | debian:11 | debian:bullseye |
-| Ubuntu 22.04 | ubuntu:22.04 | ubuntu:jammy |
-| Ubuntu 24.04 | ubuntu:24.04 | ubuntu:noble |
-| Rocky Linux 9 | rockylinux:9 | rockylinux:9-minimal |
-| AlmaLinux 9 | almalinux:9 | almalinux:9-minimal |
-| Fedora 39 | fedora:39 | fedora:latest |
-| openSUSE Leap | opensuse/leap:15.5 | opensuse/leap:latest |
-| Alpine | alpine:3.19 | alpine:latest |
-
-### C. File Locations
-
-| Path | Description |
-|------|-------------|
-| `/etc/mirror-test.yaml` | Main configuration |
-| `/var/log/mirror-test/` | Test logs |
-| `/var/lib/mirror-test/builds/` | Dockerfiles |
-| `/etc/bash_completion.d/mirror-test` | Autocomplete |
-| `/etc/systemd/system/mirror-test-web.service` | Systemd service |
-
-### D. Performance Tips
-
-1. **Use minimal base images** - Reduce download time
-2. **Limit test commands** - Only test what's necessary
-3. **Run tests in parallel** - Use multiple terminal sessions
-4. **Cache base images** - Pre-pull common images
-5. **Use local DNS** - Reduce DNS lookup time
-
-### E. Security Considerations
-
-1. **Run as root carefully** - Required for podman but use with caution
-2. **Validate mirror URLs** - Ensure HTTPS where possible
-3. **Check GPG signatures** - Set `gpgcheck=1` in production
-4. **Limit network access** - Use firewall rules for mirror servers
-5. **Regular updates** - Keep base images and tools updated
-
----
-
-## Quick Reference Card
-
+#### Manual Build
 ```bash
-# Essential Commands
-mirror-test                    # Test all
-mirror-test debian ubuntu      # Test specific
-mirror-test gui                # Web interface
-mirror-test cli                # Terminal interface
-mirror-test cleanup            # Remove images
+# Install PyInstaller
+pip install pyinstaller
 
-# Information
-mirror-test list               # List distributions
-mirror-test variables          # Show variables
-mirror-test validate           # Check config
-mirror-test help               # Full help
-
-# Logs and Debugging
-mirror-test logs debian        # View logs
-mirror-test dockerfile debian  # Show Dockerfile
-mirror-test --verbose debian   # Detailed output
-
-# Common Options
---config /path/to/config.yaml  # Alt config
---port 8081                    # Alt port
---timeout 1200                 # Longer timeout
---no-cleanup                   # Keep images
+# Build executable
+pyinstaller --onefile --name mirror-test --strip \
+    --exclude-module tkinter --exclude-module matplotlib \
+    --exclude-module numpy --exclude-module pandas \
+    --hidden-import flask --hidden-import flask_limiter \
+    --hidden-import flask_wtf --hidden-import flask_cors \
+    main.py
 ```
+
+### Development
+
+#### Running Tests
+```bash
+# Test core functionality
+python -m mirror_test.core
+
+# Test CLI interface
+python -m mirror_test.cli
+
+# Test web interface
+python -m mirror_test.web
+```
+
+#### Debug Mode
+```bash
+# Enable Flask debug mode
+export FLASK_DEBUG=1
+mirror-test gui
+
+# Enable verbose output
+mirror-test --verbose
+```
+
+### License
+
+MIT License - see LICENSE file for details.
+
+### Support
+
+For issues and questions:
+- Check the troubleshooting section above
+- Review configuration examples
+- Enable verbose output for debugging
+- Check Podman container logs (`podman logs <container_id>`)
 
 ---
 
-**End of Manual** | Version 2.1.0 | September 2025
+**Mirror Test - Modular Version v2.2.0**  
+*September 2025*

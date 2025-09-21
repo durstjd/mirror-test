@@ -1,0 +1,244 @@
+# Mirror Test Server Configuration
+# Copy this file to ~/.config/mirror-test/server-config.yaml and configure
+
+# =============================================================================
+# BASIC CONFIGURATION
+# =============================================================================
+
+# Web Server Settings
+server:
+  host: "0.0.0.0"                        # Bind address (0.0.0.0 for all interfaces)
+  port: 8080                             # HTTP port (80 for production)
+  debug: false                           # Enable debug mode
+  threaded: true                         # Enable threading
+  
+  # Session Configuration
+  session:
+    timeout: 28800                       # Session timeout in seconds (8 hours)
+    secure_cookies: true                 # Secure cookies (HTTPS only)
+    http_only: true                      # HttpOnly cookies (XSS protection)
+    same_site: "Strict"                  # SameSite policy (CSRF protection)
+
+# Audit Logging (enabled by default)
+audit_log:
+  enabled: true                          # Enable audit logging
+  log_file: "audit.log"                  # Audit log filename
+  max_size: 10485760                     # Maximum log file size (10MB)
+  backup_count: 5                        # Number of backup files to keep
+  log_level: "INFO"                      # Log level (DEBUG, INFO, WARNING, ERROR)
+  log_format: "%(asctime)s - %(levelname)s - %(message)s"  # Log format
+  date_format: "%Y-%m-%d %H:%M:%S"       # Date format
+  
+  # Event types to log
+  log_authentication: true               # Log login/logout events
+  log_test_execution: true               # Log test execution events
+  log_api_access: true                   # Log API access events
+  log_audit_access: true                 # Log audit log access events
+  log_admin_actions: true                # Log admin actions
+  
+  # Retention settings
+  retention_days: 90                     # Keep logs for 90 days
+  compress_old_logs: true                # Compress old log files
+
+# =============================================================================
+# LDAPS AUTHENTICATION (disabled by default)
+# =============================================================================
+
+# Uncomment and configure LDAPS authentication
+# ldaps:
+#   # LDAP Server Connection
+#   ldap_server: "ldap.example.com"          # LDAP server hostname (use FQDN, not IP)
+#   ldap_port: 636                           # LDAPS port (usually 636)
+#   ldap_use_ssl: true                       # Use SSL/TLS
+#   ldap_verify_cert: true                   # Verify SSL certificate (REQUIRED for security)
+#   ldap_ca_cert: "/path/to/ca-cert.pem"     # CA certificate file (REQUIRED for self-signed certs)
+#   ldap_timeout: 10                         # Connection timeout in seconds
+#   
+#   # LDAP Directory Structure
+#   base_dn: "dc=example,dc=com"             # Base DN for searches
+#   user_dn_template: "uid={username},ou=users,{base_dn}"  # User DN template
+#   group_dn: "ou=groups,{base_dn}"          # Groups container DN
+#   
+#   # Security Settings
+#   required_groups:                         # Groups required for access (optional)
+#     - "mirror-test-users"
+#     - "developers"
+
+# =============================================================================
+# SSL/TLS WEB SERVER (disabled by default)
+# =============================================================================
+
+# Uncomment and configure SSL for web interface
+# ssl:
+#   enabled: true                          # Enable SSL/TLS for web interface
+#   cert_file: "/path/to/web-server.crt"   # SSL certificate file
+#   key_file: "/path/to/web-server.key"    # SSL private key file
+#   # Alternative: use combined file instead of separate cert and key
+#   # combined_file: "/path/to/web-server.pem"
+#   
+#   # SSL Security Settings
+#   require_ssl: false                     # Require SSL certificates to start server
+#   port: 8443                             # HTTPS port (443 for production)
+#   # NOTE: When SSL is enabled, HTTP is automatically disabled
+#   # The server will only listen on the HTTPS port specified here
+#   
+#   # Certificate Validation (for production)
+#   verify_cert: true                      # Verify SSL certificate validity
+#   ca_cert: "/path/to/ca-bundle.pem"      # CA certificate bundle (optional)
+
+# =============================================================================
+# ADVANCED SECURITY FEATURES (disabled by default)
+# =============================================================================
+
+# CORS Configuration
+# cors:
+#   enabled: true                          # Enable CORS support
+#   origins:                               # Allowed origins
+#     - "https://mirror-test.company.com"  # Production web interface
+#     - "https://admin.company.com"        # Admin interface
+#     - "https://localhost:8443"           # Local HTTPS development
+#     - "http://localhost:8080"            # Local HTTP development
+#     - "http://localhost:3000"            # Frontend development
+#     - "http://127.0.0.1:8080"           # Local development alternative
+#     - "http://127.0.0.1:3000"           # Frontend development alternative
+#   
+#   methods:                               # Allowed HTTP methods
+#     - "GET"
+#     - "POST"
+#     - "PUT"
+#     - "DELETE"
+#     - "OPTIONS"
+#   
+#   allow_headers:                         # Allowed headers
+#     - "Content-Type"
+#     - "X-API-Key"
+#     - "X-API-Version"
+#     - "X-API-Signature"
+#     - "X-API-Timestamp"
+#     - "X-API-Nonce"
+#     - "Authorization"
+#     - "X-Requested-With"
+#   
+#   supports_credentials: true             # Allow credentials in CORS requests
+#   max_age: 3600                          # Cache preflight requests for 1 hour
+
+# IP Whitelist Configuration
+# ip_whitelist:
+#   enabled: false                         # Enable IP whitelist filtering
+#   mode: "allow"                          # Mode: "allow" (whitelist) or "deny" (blacklist)
+#   addresses:                             # List of allowed/denied IP addresses and ranges
+#     - "127.0.0.1"                        # Localhost
+#     - "::1"                              # IPv6 localhost
+#     - "192.168.1.0/24"                  # Local network range
+#     - "10.0.0.0/8"                      # Private network range
+#     - "172.16.0.0/12"                   # Private network range
+#     - "203.0.113.0/24"                  # Example public range
+#   
+#   # Advanced options
+#   bypass_localhost: true                 # Always allow localhost (127.0.0.1, ::1)
+#   bypass_private: false                  # Allow private network ranges (10.x, 172.16-31.x, 192.168.x)
+#   log_blocked: true                      # Log blocked IP addresses
+#   log_allowed: false                     # Log allowed IP addresses (for debugging)
+#   
+#   # Rate limiting for blocked attempts
+#   block_rate_limit: "10 per minute"      # Rate limit for blocked IP attempts
+#   block_duration: 3600                   # Block duration in seconds (1 hour)
+
+# Security Configuration
+# security:
+#   # Rate Limiting
+#   rate_limit:
+#     global: "1000 per hour"              # Global rate limit
+#     login: "5 per minute"                # Login attempt rate limit
+#     api: "100 per minute"                # API rate limit
+#   
+#   # CSRF Protection
+#   csrf:
+#     enabled: true                        # Enable CSRF protection
+#     timeout: 3600                        # CSRF token timeout (1 hour)
+#   
+#   # Security Headers
+#   headers:
+#     hsts: true                           # HTTP Strict Transport Security
+#     x_frame_options: "DENY"              # X-Frame-Options
+#     x_content_type_options: true         # X-Content-Type-Options
+#     x_xss_protection: true               # X-XSS-Protection
+
+# Logging Configuration
+# logging:
+#   level: "INFO"                          # Log level (DEBUG, INFO, WARNING, ERROR)
+#   file: "/var/log/mirror-test.log"       # Log file path (optional)
+#   max_size: "10MB"                       # Maximum log file size
+#   backup_count: 5                        # Number of backup log files
+#   
+#   # Log rotation
+#   rotation:
+#     enabled: true                        # Enable log rotation
+#     when: "midnight"                     # Rotation schedule
+#     interval: 1                          # Rotation interval
+
+# =============================================================================
+# CERTIFICATE TRUST CONFIGURATION
+# =============================================================================
+
+# For self-signed certificates, you MUST configure proper certificate trust:
+# 
+# METHOD 1: Add to System Trust Store (RECOMMENDED)
+# 
+# 1. Get the LDAP server's certificate:
+#    openssl s_client -connect ldap.example.com:636 -showcerts < /dev/null 2>/dev/null | openssl x509 -outform PEM > ldap-server.crt
+# 
+# 2. Add to system trust store:
+#    sudo cp ldap-server.crt /etc/pki/ca-trust/source/anchors/
+#    sudo update-ca-trust
+# 
+# 3. Verify it was added:
+#    sudo trust list | grep -i your-domain
+# 
+# 4. Configure in server-config.yaml:
+#    ldap_ca_cert: "/etc/pki/ca-trust/source/anchors/ldap-server.crt"
+#    ldap_verify_cert: true
+# 
+# METHOD 2: Use Custom Certificate File
+# 
+# 1. Get the LDAP server's certificate:
+#    openssl s_client -connect ldap.example.com:636 -showcerts < /dev/null 2>/dev/null | openssl x509 -outform PEM > ldap-server.crt
+# 
+# 2. Configure the CA certificate path:
+#    ldap_ca_cert: "/path/to/ldap-server.crt"
+# 
+# 3. Ensure ldap_verify_cert is true (default):
+#    ldap_verify_cert: true
+# 
+# WARNING: Never set ldap_verify_cert to false in production!
+# This creates a security vulnerability allowing man-in-the-middle attacks.
+
+# =============================================================================
+# COMMON LDAP SERVER EXAMPLES
+# =============================================================================
+
+# Active Directory
+# ldaps:
+#   ldap_server: "dc1.company.com"
+#   ldap_port: 636
+#   base_dn: "dc=company,dc=com"
+#   user_dn_template: "{username}@company.com"
+#   group_dn: "cn=Users,{base_dn}"
+
+# OpenLDAP
+# ldaps:
+#   ldap_server: "ldap.company.com"
+#   ldap_port: 636
+#   base_dn: "dc=company,dc=com"
+#   user_dn_template: "uid={username},ou=people,{base_dn}"
+#   group_dn: "ou=groups,{base_dn}"
+
+# FreeIPA
+# ldaps:
+#   ldap_server: "ipa.company.com"
+#   ldap_port: 636
+#   base_dn: "dc=company,dc=com"
+#   user_dn_template: "uid={username},cn=users,cn=accounts,{base_dn}"
+#   group_dn: "cn=groups,cn=accounts,{base_dn}"
+
+# =============================================================================
