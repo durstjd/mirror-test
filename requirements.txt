@@ -1,0 +1,11 @@
+# Core requirements
+PyYAML>=5.4.0
+
+# Web interface (optional)
+flask>=2.0.0
+flask-limiter>=2.0.0
+flask-wtf>=1.0.0
+flask-cors>=3.0.0
+
+# LDAP authentication (optional - install if available)
+python-ldap>=3.4.0  # Comment out if LDAP is unavailable on your system
