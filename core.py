@@ -30,14 +30,14 @@ class MirrorTester:
     def _get_log_dir(self):
         """Get log directory based on config file location."""
         if self.config_manager.config_file.startswith(os.path.expanduser("~")):
-            return os.path.expanduser("~/mirror-test/logs")
+            return os.path.expanduser("~/.local/log/mirror-test")
         else:
             return "/var/log/mirror-test"
     
     def _get_build_dir(self):
         """Get build directory based on config file location."""
         if self.config_manager.config_file.startswith(os.path.expanduser("~")):
-            return os.path.expanduser("~/mirror-test/builds")
+            return os.path.expanduser("~/.cache/mirror-test")
         else:
             return "/var/lib/mirror-test/builds"
     
@@ -256,36 +256,42 @@ class MirrorTester:
             dockerfile_content = self.generate_dockerfile(dist_name)
             
             # Create temporary directory for build
-            with tempfile.TemporaryDirectory() as temp_dir:
-                dockerfile_path = os.path.join(temp_dir, "Dockerfile")
-                with open(dockerfile_path, 'w') as f:
-                    f.write(dockerfile_content)
+            #with tempfile.TemporaryDirectory() as temp_dir:
+            #    dockerfile_path = os.path.join(temp_dir, "Dockerfile")
+            #    with open(dockerfile_path, 'w') as f:
+            #        f.write(dockerfile_content)
                 
-                # Build container
-                image_name = f"mirror-test:{dist_name}"
-                build_cmd = [
-                    "podman", "build", 
-                    "-t", image_name,
-                    "-f", dockerfile_path,
-                    temp_dir
-                ]
-                
-                result = subprocess.run(
-                    build_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout
-                )
-                
-                # Log the build
-                self._log_build(dist_name, result.returncode, result.stdout, result.stderr)
-                
-                # Clean up image if requested
-                if self.cleanup_images and result.returncode == 0:
-                    subprocess.run(["podman", "rmi", "-f", image_name], 
-                                 capture_output=True)
-                
-                return result.returncode == 0, result.stdout, result.stderr
+            build_dir = os.path.join(self._get_build_dir(), dist_name)
+            os.makedirs(build_dir, exist_ok=True)  # Create the directory if it doesn't exist
+            dockerfile_path = os.path.join(build_dir, "Dockerfile")
+            with open(dockerfile_path, 'w') as f:
+                f.write(dockerfile_content)
+            
+            # Build container
+            image_name = f"mirror-test:{dist_name}"
+            build_cmd = [
+                "podman", "build", 
+                "-t", image_name,
+                "-f", dockerfile_path,
+                build_dir
+            ]
+            
+            result = subprocess.run(
+                build_cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+            
+            # Log the build
+            self._log_build(dist_name, result.returncode, result.stdout, result.stderr)
+            
+            # Clean up image if requested
+            if self.cleanup_images and result.returncode == 0:
+                subprocess.run(["podman", "rmi", "-f", image_name], 
+                                capture_output=True)
+            
+            return result.returncode == 0, result.stdout, result.stderr
                 
         except subprocess.TimeoutExpired:
             error_msg = f"Build timeout after {timeout} seconds"

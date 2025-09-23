@@ -374,10 +374,12 @@ class WebInterface:
         @self._login_required
         def api_distributions():
             """Get distributions from config file."""
+            print(f"api_distributions() called - Method: {request.method}")
             if request.method == 'OPTIONS':
                 return self._handle_cors_preflight()
             
             try:
+                print("Getting distributions from config manager...")
                 # Log API access
                 self.security_manager.log_audit_event(
                     event_type='api_access',
@@ -386,9 +388,13 @@ class WebInterface:
                     success=True
                 )
                 
+                # Force reload of config file to get latest changes
+                self.config_manager.load_config()
                 distributions = self.config_manager.get_distributions()
+                print(f"Found {len(distributions)} distributions: {distributions}")
                 return jsonify({'distributions': distributions})
             except Exception as e:
+                print(f"Error in api_distributions: {e}")
                 self.app.logger.error(f"Error getting distributions: {e}")
                 return jsonify({'error': 'Failed to get distributions'}), 500
         
@@ -2544,9 +2550,18 @@ class WebInterface:
         }
         
         async function refreshDistributions() {
+            console.log('refreshDistributions() called');
             try {
+                console.log('Fetching /api/distributions...');
                 const response = await fetch('/api/distributions');
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const data = await response.json();
+                console.log('Received data:', data);
                 
                 const distributionList = document.getElementById('distribution-list');
                 let html = '';

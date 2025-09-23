@@ -28,6 +28,11 @@ audit_log:
   log_level: "INFO"                      # Log level (DEBUG, INFO, WARNING, ERROR)
   log_format: "%(asctime)s - %(levelname)s - %(message)s"  # Log format
   date_format: "%Y-%m-%d %H:%M:%S"       # Date format
+  append_only: true                      # Apply chattr +a for tamper protection (optional, requires root)
+  # NOTE: append_only requires:
+  #   - Linux/Unix system with chattr command
+  #   - Root privileges or sudo access
+  #   - If unavailable, audit logging continues without protection
   
   # Event types to log
   log_authentication: true               # Log login/logout events

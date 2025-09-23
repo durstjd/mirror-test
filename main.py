@@ -534,10 +534,10 @@ Install default configuration files and directories
 .I ~/.config/mirror-test/mirror-test.yaml
 Main configuration file
 .TP
-.I ~/mirror-test/logs/
+.I ~/.local/log/mirror-test/
 Test logs directory
 .TP
-.I ~/mirror-test/builds/
+.I ~/.cache/mirror-test/
 Dockerfile storage directory
 .TP
 .I ~/.config/mirror-test/server-config.yaml

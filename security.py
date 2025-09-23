@@ -122,7 +122,7 @@ class SecurityManager:
             self.audit_logger.removeHandler(handler)
         
         # Create log directory
-        log_dir = os.path.expanduser(self.audit_log_config.get('log_dir', '~/mirror-test/logs'))
+        log_dir = os.path.expanduser(self.audit_log_config.get('log_dir', '~/.local/log/mirror-test'))
         os.makedirs(log_dir, exist_ok=True)
         
         # Create file handler with rotation
@@ -132,6 +132,10 @@ class SecurityManager:
             maxBytes=self.audit_log_config.get('max_size', 10 * 1024 * 1024),  # 10MB
             backupCount=self.audit_log_config.get('backup_count', 5)
         )
+        
+        # Apply append-only attribute (chattr +a) for security if enabled
+        if self.audit_log_config.get('append_only', True):  # Default to True for security
+            self._apply_append_only_attribute(log_file)
         
         # Create formatter
         formatter = logging.Formatter(
@@ -150,6 +154,42 @@ class SecurityManager:
             action='audit_logging_started',
             success=True
         )
+    
+    def _apply_append_only_attribute(self, log_file):
+        """Apply append-only attribute (chattr +a) to audit log file for security."""
+        try:
+            import subprocess
+            import stat
+            
+            # Check if the file exists
+            if not os.path.exists(log_file):
+                # Create an empty file first
+                with open(log_file, 'w') as f:
+                    f.write('')
+            
+            # Apply chattr +a (append-only attribute)
+            result = subprocess.run(['chattr', '+a', log_file], 
+                                  capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                print(f"✓ Applied append-only attribute to audit log: {log_file}")
+                print("  Audit log is now protected against tampering (chattr +a)")
+            else:
+                print(f"⚠ Warning: Could not apply append-only attribute to {log_file}")
+                print(f"  Error: {result.stderr}")
+                print("  Audit logging will continue without tamper protection")
+                print("  To enable protection, run as root or check chattr availability")
+                
+        except subprocess.TimeoutExpired:
+            print(f"⚠ Warning: Timeout applying append-only attribute to {log_file}")
+            print("  Audit logging will continue without tamper protection")
+        except FileNotFoundError:
+            print(f"⚠ Warning: chattr command not found - append-only attribute not applied")
+            print("  Audit logging will continue without tamper protection")
+            print("  Install util-linux package or run on a system with chattr support")
+        except Exception as e:
+            print(f"⚠ Warning: Error applying append-only attribute: {e}")
+            print("  Audit logging will continue without tamper protection")
     
     def log_audit_event(self, event_type, user, action, details=None, ip_address=None, success=True):
         """Log an audit event."""
@@ -462,7 +502,7 @@ class SecurityManager:
             return []
         
         log_file = os.path.join(
-            os.path.expanduser(self.audit_log_config.get('log_dir', '~/mirror-test/logs')),
+            os.path.expanduser(self.audit_log_config.get('log_dir', '~/.local/log/mirror-test')),
             'audit.log'
         )
         

@@ -28,8 +28,10 @@ class ConfigManager:
             config = yaml.safe_load(f)
             
         if not config:
-            return {}
-            
+            config = {}
+        
+        # Update the instance variable so get_distributions() uses the new config
+        self.config = config
         return config
     
     def create_default_config(self):
